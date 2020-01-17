@@ -12,10 +12,10 @@ import importlib
 import numpy as np
 import tensorflow as tf
 from datetime import datetime
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(BASE_DIR)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__)) # train/
+ROOT_DIR = os.path.dirname(BASE_DIR) # frustum-pointnets/
 sys.path.append(BASE_DIR)
-sys.path.append(os.path.join(ROOT_DIR, 'models'))
+sys.path.append(os.path.join(ROOT_DIR, 'models')) # Allows directly importing models
 import provider
 from train_util import get_batch
 
