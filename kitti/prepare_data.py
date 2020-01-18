@@ -185,6 +185,7 @@ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
         objects = dataset.get_label_objects(data_idx)
         pc_velo = dataset.get_lidar(data_idx)
         pc_rect = np.zeros_like(pc_velo)
+        # Convert from lidar frame to camera frame
         pc_rect[:,0:3] = calib.project_velo_to_rect(pc_velo[:,0:3])
         pc_rect[:,3] = pc_velo[:,3]
         img = dataset.get_image(data_idx)
