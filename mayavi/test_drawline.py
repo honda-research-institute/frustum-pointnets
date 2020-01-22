@@ -1,4 +1,5 @@
 import numpy
+import mayavi.mlab as mlab
 from mayavi.mlab import *
 
 def test_plot3d():
@@ -13,6 +14,7 @@ def test_plot3d():
     z = numpy.sin(n_long * mu / n_mer) * 0.5
 
     l = plot3d(x, y, z, numpy.sin(mu), tube_radius=0.025, colormap='Spectral')
+    mlab.show()
     return l
 
 test_plot3d()
