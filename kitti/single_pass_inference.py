@@ -13,6 +13,7 @@ import importlib
 import cv2
 from PIL import Image
 import matplotlib.pyplot as plt
+import time
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
@@ -201,8 +202,8 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
     # Foreach 2D BBox in detection file, crop corresponding frustum_pc
     for det_idx in range(len(det_id_list)):
         data_idx = det_id_list[det_idx]
-        print('det idx: %d/%d, data idx: %d' % \
-              (det_idx, len(det_id_list), data_idx))
+        # print('det idx: %d/%d, data idx: %d' % \
+        #      (det_idx, len(det_id_list), data_idx))
         if cache_id != data_idx:
             calib = get_kitti_calibration(calib_filename)  # 3 by 4 matrix
             pc_velo = get_kitti_lidar(lidar_filename)
@@ -365,7 +366,8 @@ def draw_boxes3d_on_img(boxes3d, img, color=(255, 0, 0), thickness=1, render=Tru
         # Image.fromarray(img).show()
         plt.imshow(img)
         plt.show(block=False)
-        raw_input()
+        # raw_input()
+        time.sleep(.01)
         plt.clf()  # will make the plot window empty
 
 
@@ -407,16 +409,17 @@ def inference(sess, ops, pc, one_hot_vec, batch_size):
         size_logits[i * batch_size:(i + 1) * batch_size, ...] = batch_size_scores
         size_residuals[i * batch_size:(i + 1) * batch_size, ...] = batch_size_residuals
 
-        # Compute scores
-        batch_seg_prob = softmax(batch_logits)[:, :, 1]  # BxN
-        batch_seg_mask = np.argmax(batch_logits, 2)  # BxN
-        mask_mean_prob = np.sum(batch_seg_prob * batch_seg_mask, 1)  # B,
-        mask_mean_prob = mask_mean_prob / np.sum(batch_seg_mask, 1)  # B,
-        heading_prob = np.max(softmax(batch_heading_scores), 1)  # B
-        size_prob = np.max(softmax(batch_size_scores), 1)  # B,
-        batch_scores = np.log(mask_mean_prob) + np.log(heading_prob) + np.log(size_prob)
-        scores[i * batch_size:(i + 1) * batch_size] = batch_scores
-        # Finished computing scores
+        if False:
+            # Compute scores
+            batch_seg_prob = softmax(batch_logits)[:, :, 1]  # BxN
+            batch_seg_mask = np.argmax(batch_logits, 2)  # BxN
+            mask_mean_prob = np.sum(batch_seg_prob * batch_seg_mask, 1)  # B,
+            mask_mean_prob = mask_mean_prob / np.sum(batch_seg_mask, 1)  # B,
+            heading_prob = np.max(softmax(batch_heading_scores), 1)  # B
+            size_prob = np.max(softmax(batch_size_scores), 1)  # B,
+            batch_scores = np.log(mask_mean_prob) + np.log(heading_prob) + np.log(size_prob)
+            scores[i * batch_size:(i + 1) * batch_size] = batch_scores
+            # Finished computing scores
 
     heading_cls = np.argmax(heading_logits, 1)  # B
     size_cls = np.argmax(size_logits, 1)  # B
@@ -426,14 +429,13 @@ def inference(sess, ops, pc, one_hot_vec, batch_size):
                           for i in range(pc.shape[0])])
 
     return np.argmax(logits, 2), centers, heading_cls, heading_res, \
-           size_cls, size_res, scores
+           size_cls, size_res  # , scores
 
 
-def run_inference(batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img):
+def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img):
     batch_size = BATCH_SIZE
     batch_data_to_feed = np.zeros((batch_size, NUM_POINT, NUM_CHANNEL))
     batch_one_hot_to_feed = np.zeros((batch_size, 3))
-    sess, ops = get_session_and_ops(batch_size=batch_size, num_point=NUM_POINT)
     cur_batch_size = batch_data.shape[0]
     batch_data_to_feed[0:cur_batch_size, ...] = batch_data
     batch_one_hot_to_feed[0:cur_batch_size, :] = batch_one_hot_vec
@@ -441,7 +443,7 @@ def run_inference(batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec
     # Run one batch inference
     batch_output, batch_center_pred, \
     batch_hclass_pred, batch_hres_pred, \
-    batch_sclass_pred, batch_sres_pred, batch_scores = \
+    batch_sclass_pred, batch_sres_pred = \
         inference(sess, ops, batch_data_to_feed,
                   batch_one_hot_to_feed, batch_size=batch_size)
 
@@ -456,18 +458,17 @@ def run_inference(batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec
     # boxes3d = (n,8,2)
     boxes3d = np.zeros((cur_batch_size, 8, 2))
     for pick in range(cur_batch_size):
-        print("pick={}", pick)
         h, w, l, tx, ty, tz, ry = from_prediction_to_label_format(batch_center_pred[pick],
                                                                   batch_hclass_pred[pick],
                                                                   batch_hres_pred[pick],
                                                                   batch_sclass_pred[pick],
                                                                   batch_sres_pred[pick],
                                                                   batch_rot_angle[pick])
-        print("center={:.1f}, {:.1f}, {:.1f}, l/w/h={:.1f}, {:.1f}, {:.1f}, ry={:.2f}".format(tx, ty, tz, l, w, h, ry))
+        # print("center={:.1f}, {:.1f}, {:.1f}, l/w/h={:.1f}, {:.1f}, {:.1f}, ry={:.2f}".format(tx, ty, tz, l, w, h, ry))
         # compute_projected_box3d returns (8,2)
         boxes3d[pick] = utils.compute_projected_box3d(h, w, l, tx, ty, tz, ry, calib.P)
 
-    draw_boxes3d_on_img(boxes3d, img)
+    draw_boxes3d_on_img(boxes3d, img, render=False)
 
 
 if __name__ == '__main__':
@@ -477,7 +478,12 @@ if __name__ == '__main__':
 
     INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang')
     SAMPLES = ['001960', '000851', '000006', '000003']
+
+    batch_size = BATCH_SIZE
+    sess, ops = get_session_and_ops(batch_size=batch_size, num_point=NUM_POINT)
+
     for SAMPLE in SAMPLES:
+        t0 = time.time()  # start time
         batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img = \
             extract_frustum_data_rgb_detection(os.path.join(INPUT_DIR, "detections_{:s}.txt".format(SAMPLE)),
                                                os.path.join(INPUT_DIR, "{:s}.png".format(SAMPLE)),
@@ -487,4 +493,6 @@ if __name__ == '__main__':
                                                write_to_pcd=write_to_pcd,
                                                draw_img=draw_img)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        run_inference(batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img)
+        run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img)
+        t1 = time.time()  # end time
+        print("time={:.3f}".format(t1 - t0))
