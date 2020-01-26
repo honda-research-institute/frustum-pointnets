@@ -24,6 +24,7 @@ from provider import from_prediction_to_label_format
 import kitti_util as utils
 import cPickle as pickle
 import argparse
+import pypcd
 
 modelname = "frustum_pointnets_v1"
 MODEL = importlib.import_module(modelname)
@@ -92,8 +93,28 @@ def get_kitti_image(img_filename):
 
 
 def get_kitti_lidar(lidar_filename):
-    return utils.load_velo_scan(lidar_filename)
+    if ".bin" in lidar_filename:
+        return utils.load_velo_scan(lidar_filename)
+    elif ".pcd" in lidar_filename:
+        return read_from_pcd(lidar_filename)
+    else:
+        assert 0, "Unknown lidar_filename" % lidar_filename
 
+def read_from_pcd(pcd_file):
+    if os.path.exists(pcd_file):
+        pc = pypcd.PointCloud.from_path(pcd_file)
+        n_pts = len(pc.pc_data['x'])
+        points = []
+        for i in range(n_pts):
+            x = pc.pc_data['x'][i]
+            y = pc.pc_data['y'][i]
+            z = pc.pc_data['z'][i]
+            pt = [x, y, z, 0.5] # FIXME: guess an intensity when not available
+            points.append(pt)
+
+        xyzi = np.array(points) # Nx4
+        print(xyzi.shape)
+        return xyzi
 
 def get_kitti_calibration(calib_filename):
     return utils.Calibration(calib_filename)
@@ -182,7 +203,7 @@ class FrustumFeeder(object):
 def extract_frustum_data_rgb_detection(det_filename, image_filename,
                                        lidar_filename, calib_filename,
                                        type_whitelist=['Car'],
-                                       write_to_pcd=False,
+                                       write_frustum_pcd=False,
                                        draw_img=False,
                                        img_height_threshold=20,
                                        lidar_point_threshold=5):
@@ -207,8 +228,6 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
         if cache_id != data_idx:
             calib = get_kitti_calibration(calib_filename)  # 3 by 4 matrix
             pc_velo = get_kitti_lidar(lidar_filename)
-            if write_to_pcd:
-                write2pcd(pc_velo, lidar_filename.replace('.bin', '.pcd'))
             pc_rect = np.zeros_like(pc_velo)
             pc_rect[:, 0:3] = calib.project_velo_to_rect(pc_velo[:, 0:3])
             pc_rect[:, 3] = pc_velo[:, 3]
@@ -248,6 +267,9 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
         if ymax - ymin < img_height_threshold or \
                 len(pc_in_box_fov) < lidar_point_threshold:
             continue
+
+        if write_frustum_pcd:
+            write2pcd(pc_in_box_fov, lidar_filename.replace('.pcd', '_{:d}.pcd'.format(det_idx)))
 
         id_list.append(data_idx)
         type_list.append(det_type_list[det_idx])
@@ -344,12 +366,16 @@ def draw_boxes2d_on_img(boxes2d, img, render=True):
         cv2.rectangle(img1, (int(box2d[0]), int(box2d[1])),
                       (int(box2d[2]), int(box2d[3])), (0, 255, 0), 2)
     if render:
-        Image.fromarray(img1).show()
+        #Image.fromarray(img1).show()
+        plt.imshow(img1)
+        plt.show(block=False)
+        raw_input()
+        time.sleep(0.01)
+        plt.clf()  # will make the plot window empty
 
 
 # boxes3d = (n,8,2) => 8 corners per box with (x,y)
 def draw_boxes3d_on_img(boxes3d, img, color=(255, 0, 0), thickness=1, render=True):
-    # img1 = np.copy(img)  # for 3d bbox
     boxes3d = boxes3d.astype(np.int32)
     for box3d in boxes3d:  # box3d is (8,2)
         for k in range(0, 4):
@@ -366,8 +392,8 @@ def draw_boxes3d_on_img(boxes3d, img, color=(255, 0, 0), thickness=1, render=Tru
         # Image.fromarray(img).show()
         plt.imshow(img)
         plt.show(block=False)
-        # raw_input()
-        time.sleep(.01)
+        raw_input()
+        time.sleep(0.01)
         plt.clf()  # will make the plot window empty
 
 
@@ -468,16 +494,23 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_
         # compute_projected_box3d returns (8,2)
         boxes3d[pick] = utils.compute_projected_box3d(h, w, l, tx, ty, tz, ry, calib.P)
 
-    draw_boxes3d_on_img(boxes3d, img, render=False)
+    draw_boxes3d_on_img(boxes3d, img, render=True)
 
 
 if __name__ == '__main__':
     type_whitelist = ['Car']  # ['Car', 'Pedestrian', 'Cyclist']
-    write_to_pcd = False
+    write_frustum_pcd = False
     draw_img = False
 
-    INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang')
-    SAMPLES = ['001960', '000851', '000006', '000003']
+    do_kitti = False
+    if do_kitti:
+        lidar_ending = ".bin"
+        INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang')
+        SAMPLES = ['001960', '000851', '000006', '000003']
+    else:
+        lidar_ending = ".pcd"
+        INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang/VLP32')
+        SAMPLES = ['000040'] #['000100'] #['000010']
 
     batch_size = BATCH_SIZE
     sess, ops = get_session_and_ops(batch_size=batch_size, num_point=NUM_POINT)
@@ -487,10 +520,10 @@ if __name__ == '__main__':
         batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img = \
             extract_frustum_data_rgb_detection(os.path.join(INPUT_DIR, "detections_{:s}.txt".format(SAMPLE)),
                                                os.path.join(INPUT_DIR, "{:s}.png".format(SAMPLE)),
-                                               os.path.join(INPUT_DIR, "{:s}.bin".format(SAMPLE)),
+                                               os.path.join(INPUT_DIR, "{:s}{:s}".format(SAMPLE, lidar_ending)),
                                                os.path.join(INPUT_DIR, "{:s}.txt".format(SAMPLE)),
                                                type_whitelist=type_whitelist,
-                                               write_to_pcd=write_to_pcd,
+                                               write_frustum_pcd=write_frustum_pcd,
                                                draw_img=draw_img)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img)
