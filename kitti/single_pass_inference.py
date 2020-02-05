@@ -75,7 +75,7 @@ def write2pcd(scan, pcd_file):
 def read_det_file(det_filename):
     ''' Parse lines in 2D detection output files '''
     det_id2str = {1: 'Pedestrian', 2: 'Car', 3: 'Cyclist'}
-    id_list = []
+    id_list = []  # TODO: not used, remove
     type_list = []
     prob_list = []
     box2d_list = []
@@ -92,13 +92,22 @@ def get_kitti_image(img_filename):
     return utils.load_image(img_filename)
 
 
+def load_nuscenes_scan(velo_filename):
+    scan = np.fromfile(velo_filename, dtype=np.float32)
+    scan = scan.reshape((-1, 5))
+    return scan[:, :4]
+
+
 def get_kitti_lidar(lidar_filename):
-    if ".bin" in lidar_filename:
+    if lidar_filename.endswith(".pcd.bin"):
+        return load_nuscenes_scan(lidar_filename)
+    elif lidar_filename.endswith(".bin"):
         return utils.load_velo_scan(lidar_filename)
-    elif ".pcd" in lidar_filename:
+    elif lidar_filename.endswith(".pcd"):
         return read_from_pcd(lidar_filename)
     else:
         assert 0, "Unknown lidar_filename" % lidar_filename
+
 
 def read_from_pcd(pcd_file):
     if os.path.exists(pcd_file):
@@ -109,24 +118,26 @@ def read_from_pcd(pcd_file):
             x = pc.pc_data['x'][i]
             y = pc.pc_data['y'][i]
             z = pc.pc_data['z'][i]
-            pt = [x, y, z, 0.5] # FIXME: guess an intensity when not available
+            pt = [x, y, z, 0.5]  # FIXME: guess an intensity when not available
             points.append(pt)
 
-        xyzi = np.array(points) # Nx4
+        xyzi = np.array(points)  # Nx4
         print(xyzi.shape)
         return xyzi
+
 
 def get_kitti_calibration(calib_filename):
     return utils.Calibration(calib_filename)
 
 
 def get_lidar_in_image_fov(pc_velo, calib, xmin, ymin, xmax, ymax,
-                           return_more=False, clip_distance=2.0):
+                           return_more=False, clip_distance=None):
     ''' Filter lidar points, keep those in image FOV '''
     pts_2d = calib.project_velo_to_image(pc_velo)
     fov_inds = (pts_2d[:, 0] < xmax) & (pts_2d[:, 0] >= xmin) & \
                (pts_2d[:, 1] < ymax) & (pts_2d[:, 1] >= ymin)
-    fov_inds = fov_inds & (pc_velo[:, 0] > clip_distance)
+    if clip_distance:
+        fov_inds = fov_inds & (pc_velo[:, 0] > clip_distance)
     imgfov_pc_velo = pc_velo[fov_inds, :]
     if return_more:
         return imgfov_pc_velo, pts_2d, fov_inds
@@ -151,9 +162,8 @@ def rotate_pc_along_y(pc, rot_angle):
 
 
 class FrustumFeeder(object):
-    def __init__(self, id_list, box2d_list, input_list, type_list, frustum_angle_list, prob_list):
+    def __init__(self, box2d_list, input_list, type_list, frustum_angle_list, prob_list):
         self.npoints = NUM_POINT
-        self.id_list = id_list
         self.box2d_list = box2d_list
         self.input_list = input_list
         self.type_list = type_list
@@ -209,10 +219,7 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
                                        lidar_point_threshold=5):
     det_id_list, det_type_list, det_box2d_list, det_prob_list = \
         read_det_file(det_filename)
-    cache_id = -1
-    cache = None
 
-    id_list = []
     type_list = []
     box2d_list = []
     prob_list = []
@@ -222,26 +229,38 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
 
     # Foreach 2D BBox in detection file, crop corresponding frustum_pc
     for det_idx in range(len(det_id_list)):
-        data_idx = det_id_list[det_idx]
-        # print('det idx: %d/%d, data idx: %d' % \
-        #      (det_idx, len(det_id_list), data_idx))
-        if cache_id != data_idx:
+        print('det idx: %d/%d' % (det_idx + 1, len(det_id_list)))
+        if det_idx == 0:  # first det, load all input files
             calib = get_kitti_calibration(calib_filename)  # 3 by 4 matrix
+
+            # Test calibration by 3d-to-2d projection:
+            # pt_3d = np.zeros((1, 3))
+            # pt_3d[0] = [1, 10, 0]
+            # pts_2d = calib.project_velo_to_image(pt_3d)
+            # print(pts_2d)
+
             pc_velo = get_kitti_lidar(lidar_filename)
-            pc_rect = np.zeros_like(pc_velo)
-            pc_rect[:, 0:3] = calib.project_velo_to_rect(pc_velo[:, 0:3])
+            pc_rect_full = calib.project_velo_to_rect(pc_velo[:, 0:3])
+            pc_frontal_mask = pc_rect_full[:, 2] > 0
+            pc_velo = pc_velo[pc_frontal_mask, :]  # Nx4
+            pc_rect = np.zeros((np.count_nonzero(pc_frontal_mask), 4))
+            pc_rect[:, 0:3] = pc_rect_full[pc_frontal_mask, :]
             pc_rect[:, 3] = pc_velo[:, 3]
+
+            if write_frustum_pcd:
+                write2pcd(pc_velo, lidar_filename.replace('.pcd', '_full.pcd'))
+
             img = get_kitti_image(image_filename)
             if draw_img:
                 boxes2d = np.stack(det_box2d_list, axis=0)  # Nx4
                 draw_boxes2d_on_img(boxes2d, img)
             img_height, img_width, img_channel = img.shape
+            # TODO: project_velo_to_rect is called again in get_lidar_in_image_fov
+            #       try to save it
             _, pc_image_coord, img_fov_inds = get_lidar_in_image_fov( \
                 pc_velo[:, 0:3], calib, 0, 0, img_width, img_height, True)
-            cache = [calib, pc_rect, pc_image_coord, img_fov_inds]
-            cache_id = data_idx
-        else:
-            calib, pc_rect, pc_image_coord, img_fov_inds = cache
+
+            # Used next: calib, pc_rect, pc_image_coord, img_fov_inds
 
         if det_type_list[det_idx] not in type_whitelist: continue
 
@@ -271,7 +290,6 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
         if write_frustum_pcd:
             write2pcd(pc_in_box_fov, lidar_filename.replace('.pcd', '_{:d}.pcd'.format(det_idx)))
 
-        id_list.append(data_idx)
         type_list.append(det_type_list[det_idx])
         box2d_list.append(det_box2d_list[det_idx])
         prob_list.append(det_prob_list[det_idx])
@@ -281,7 +299,6 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
 
     if False:
         with open(output_filename, 'wb') as fp:
-            pickle.dump(id_list, fp)
             pickle.dump(box2d_list, fp)
             pickle.dump(input_list, fp)
             pickle.dump(type_list, fp)
@@ -296,7 +313,7 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
     batch_rot_angle = np.zeros((bsize,))
     batch_prob = np.zeros((bsize,))
     batch_one_hot_vec = np.zeros((bsize, 3))  # for car,ped,cyc
-    frustum_feeder = FrustumFeeder(id_list, box2d_list, input_list, \
+    frustum_feeder = FrustumFeeder(box2d_list, input_list, \
                                    type_list, frustum_angle_list, prob_list)
     for i in range(bsize):
         ps, rotangle, prob, onehotvec = frustum_feeder[i]
@@ -366,7 +383,7 @@ def draw_boxes2d_on_img(boxes2d, img, render=True):
         cv2.rectangle(img1, (int(box2d[0]), int(box2d[1])),
                       (int(box2d[2]), int(box2d[3])), (0, 255, 0), 2)
     if render:
-        #Image.fromarray(img1).show()
+        # Image.fromarray(img1).show()
         plt.imshow(img1)
         plt.show(block=False)
         raw_input()
@@ -499,29 +516,39 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_
 
 if __name__ == '__main__':
     type_whitelist = ['Car']  # ['Car', 'Pedestrian', 'Cyclist']
-    write_frustum_pcd = False
+    write_frustum_pcd = True
     draw_img = False
 
-    do_kitti = False
-    if do_kitti:
+    run_mode = 2  # 0: kitti, 1: mule VLP32, 2: nuscenes
+    if run_mode == 0:  # kitti
         lidar_ending = ".bin"
-        INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang')
+        INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'kitti')
         SAMPLES = ['001960', '000851', '000006', '000003']
-    else:
+    elif run_mode == 1:  # mule
         lidar_ending = ".pcd"
-        INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang/VLP32')
-        SAMPLES = ['000040'] #['000100'] #['000010']
+        INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'VLP32')
+        SAMPLES = ['000040']  # ['000100'] #['000010']
+    else:  # nuscenes
+        INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'nuscenes')
+        DET_FILE = os.path.join(INPUT_DIR, "detections.txt")
+        IMG_FILE = os.path.join(INPUT_DIR, "n008-2018-05-21-11-06-59-0400__CAM_FRONT__1526915249362465.jpg")
+        LIDAR_FILE = os.path.join(INPUT_DIR, "n008-2018-05-21-11-06-59-0400__LIDAR_TOP__1526915249397026.pcd.bin")
+        CALIB_FILE = os.path.join(INPUT_DIR, "calib.txt")
+        SAMPLES = ['0']  # dummy
 
     batch_size = BATCH_SIZE
     sess, ops = get_session_and_ops(batch_size=batch_size, num_point=NUM_POINT)
 
     for SAMPLE in SAMPLES:
+        if run_mode == 0 or run_mode == 1:
+            DET_FILE = os.path.join(INPUT_DIR, "detections_{:s}.txt".format(SAMPLE))
+            IMG_FILE = os.path.join(INPUT_DIR, "{:s}.png".format(SAMPLE))
+            LIDAR_FILE = os.path.join(INPUT_DIR, "{:s}{:s}".format(SAMPLE, lidar_ending))
+            CALIB_FILE = os.path.join(INPUT_DIR, "{:s}.txt".format(SAMPLE))
+
         t0 = time.time()  # start time
         batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img = \
-            extract_frustum_data_rgb_detection(os.path.join(INPUT_DIR, "detections_{:s}.txt".format(SAMPLE)),
-                                               os.path.join(INPUT_DIR, "{:s}.png".format(SAMPLE)),
-                                               os.path.join(INPUT_DIR, "{:s}{:s}".format(SAMPLE, lidar_ending)),
-                                               os.path.join(INPUT_DIR, "{:s}.txt".format(SAMPLE)),
+            extract_frustum_data_rgb_detection(DET_FILE, IMG_FILE, LIDAR_FILE, CALIB_FILE,
                                                type_whitelist=type_whitelist,
                                                write_frustum_pcd=write_frustum_pcd,
                                                draw_img=draw_img)
