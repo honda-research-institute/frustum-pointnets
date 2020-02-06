@@ -241,6 +241,7 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
 
             pc_velo = get_kitti_lidar(lidar_filename)
             pc_rect_full = calib.project_velo_to_rect(pc_velo[:, 0:3])
+            # Remove points behind image plane
             pc_frontal_mask = pc_rect_full[:, 2] > 0
             pc_velo = pc_velo[pc_frontal_mask, :]  # Nx4
             pc_rect = np.zeros((np.count_nonzero(pc_frontal_mask), 4))
