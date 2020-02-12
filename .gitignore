@@ -4,4 +4,3 @@
 dataset/KITTI
 train/detection_results_v1/
 train/log_v1/
-nuscenes-devkit/
