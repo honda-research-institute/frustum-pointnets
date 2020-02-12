@@ -72,20 +72,20 @@ def write2pcd(scan, pcd_file):
             f.write("{} {} {} 0 0 0\n".format(scan[i, 0], scan[i, 1], scan[i, 2]))
 
 
+# File format: xxx.png type conf xmin ymin xmax ymax
 def read_det_file(det_filename):
     ''' Parse lines in 2D detection output files '''
     det_id2str = {1: 'Pedestrian', 2: 'Car', 3: 'Cyclist'}
-    id_list = []  # TODO: not used, remove
     type_list = []
     prob_list = []
     box2d_list = []
     for line in open(det_filename, 'r'):
         t = line.rstrip().split(" ")
-        id_list.append(int(os.path.basename(t[0]).rstrip('.png')))
-        type_list.append(det_id2str[int(t[1])])
-        prob_list.append(float(t[2]))
+        category, prob = int(t[1]), float(t[2])
+        type_list.append(det_id2str[category])
+        prob_list.append(prob)
         box2d_list.append(np.array([float(t[i]) for i in range(3, 7)]))
-    return id_list, type_list, box2d_list, prob_list
+    return type_list, box2d_list, prob_list
 
 
 def get_kitti_image(img_filename):
@@ -217,7 +217,7 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
                                        draw_img=False,
                                        img_height_threshold=20,
                                        lidar_point_threshold=5):
-    det_id_list, det_type_list, det_box2d_list, det_prob_list = \
+    det_type_list, det_box2d_list, det_prob_list = \
         read_det_file(det_filename)
 
     type_list = []
@@ -228,8 +228,8 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
     calib_list = []  # calib data
 
     # Foreach 2D BBox in detection file, crop corresponding frustum_pc
-    for det_idx in range(len(det_id_list)):
-        print('det idx: %d/%d' % (det_idx + 1, len(det_id_list)))
+    for det_idx in range(len(det_type_list)):
+        print('det idx: %d/%d' % (det_idx + 1, len(det_type_list)))
         if det_idx == 0:  # first det, load all input files
             calib = get_kitti_calibration(calib_filename)  # 3 by 4 matrix
 
@@ -249,7 +249,7 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
             pc_rect[:, 3] = pc_velo[:, 3]
 
             if write_frustum_pcd:
-                write2pcd(pc_velo, lidar_filename.replace('.pcd', '_full.pcd'))
+                write2pcd(pc_velo, lidar_filename.rstrip('.bin').replace('.pcd', '_full.pcd'))
 
             img = get_kitti_image(image_filename)
             if draw_img:
@@ -289,7 +289,7 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
             continue
 
         if write_frustum_pcd:
-            write2pcd(pc_in_box_fov, lidar_filename.replace('.pcd', '_{:d}.pcd'.format(det_idx)))
+            write2pcd(pc_in_box_fov, lidar_filename.rstrip('.bin').replace('.pcd', '_{:d}.pcd'.format(det_idx)))
 
         type_list.append(det_type_list[det_idx])
         box2d_list.append(det_box2d_list[det_idx])
@@ -531,9 +531,19 @@ if __name__ == '__main__':
         SAMPLES = ['000040']  # ['000100'] #['000010']
     else:  # nuscenes
         INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'nuscenes')
-        DET_FILE = os.path.join(INPUT_DIR, "detections.txt")
-        IMG_FILE = os.path.join(INPUT_DIR, "n008-2018-05-21-11-06-59-0400__CAM_FRONT__1526915249362465.jpg")
-        LIDAR_FILE = os.path.join(INPUT_DIR, "n008-2018-05-21-11-06-59-0400__LIDAR_TOP__1526915249397026.pcd.bin")
+        sel = 2
+        if sel == 0:
+            DET_FILE = os.path.join(INPUT_DIR, "detections0.txt")
+            IMG_FILE = os.path.join(INPUT_DIR, "n008-2018-05-21-11-06-59-0400__CAM_FRONT__1526915249362465.jpg")
+            LIDAR_FILE = os.path.join(INPUT_DIR, "n008-2018-05-21-11-06-59-0400__LIDAR_TOP__1526915249397026.pcd.bin")
+        elif sel == 1:
+            DET_FILE = os.path.join(INPUT_DIR, "detections1.txt")
+            IMG_FILE = os.path.join(INPUT_DIR, "n008-2018-08-29-16-04-13-0400__CAM_FRONT__1535573950412445.jpg")
+            LIDAR_FILE = os.path.join(INPUT_DIR, "n008-2018-08-29-16-04-13-0400__LIDAR_TOP__1535573950447836.pcd.bin")
+        elif sel == 2:
+            DET_FILE = os.path.join(INPUT_DIR, "detections2.txt")
+            IMG_FILE = os.path.join(INPUT_DIR, "n015-2018-09-27-15-33-17+0800__CAM_FRONT__1538033817262460.jpg")
+            LIDAR_FILE = os.path.join(INPUT_DIR, "n015-2018-09-27-15-33-17+0800__LIDAR_TOP__1538033817297316.pcd.bin")
         CALIB_FILE = os.path.join(INPUT_DIR, "calib.txt")
         SAMPLES = ['0']  # dummy
 
