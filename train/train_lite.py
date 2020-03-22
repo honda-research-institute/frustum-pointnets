@@ -210,15 +210,15 @@ def train():
             log_string('**** EPOCH %03d ****' % (epoch))
             sys.stdout.flush()
              
-            train_one_epoch(sess, ops, train_writer)
-            eval_one_epoch(sess, ops, test_writer)
+            train_one_epoch(sess, ops, train_writer, iou3d_thresh=0.5)
+            eval_one_epoch(sess, ops, test_writer, iou3d_thresh=0.5)
 
             # Save the variables to disk.
             if epoch % 10 == 0:
                 save_path = saver.save(sess, os.path.join(LOG_DIR, "model.ckpt"))
                 log_string("Model saved in file: %s" % save_path)
 
-def train_one_epoch(sess, ops, train_writer):
+def train_one_epoch(sess, ops, train_writer, iou3d_thresh=0.7):
     ''' Training for one epoch on the frustum dataset.
     ops is dict mapping from string to tf ops
     '''
@@ -276,7 +276,7 @@ def train_one_epoch(sess, ops, train_writer):
         loss_sum += loss_val
         iou2ds_sum += np.sum(iou2ds)
         iou3ds_sum += np.sum(iou3ds)
-        iou3d_correct_cnt += np.sum(iou3ds>=0.7)
+        iou3d_correct_cnt += np.sum(iou3ds>=iou3d_thresh)
 
         if (batch_idx+1)%10 == 0:
             log_string(' -- %03d / %03d --' % (batch_idx+1, num_batches))
@@ -285,8 +285,8 @@ def train_one_epoch(sess, ops, train_writer):
                 (total_correct / float(total_seen)))
             log_string('box IoU (ground/3D): %f / %f' % \
                 (iou2ds_sum / float(BATCH_SIZE*10), iou3ds_sum / float(BATCH_SIZE*10)))
-            log_string('box estimation accuracy (IoU=0.7): %f' % \
-                (float(iou3d_correct_cnt)/float(BATCH_SIZE*10)))
+            log_string('box estimation accuracy (IoU={:.1f}): {:.2f}'.format(iou3d_thresh, \
+                (float(iou3d_correct_cnt)/float(BATCH_SIZE*10))))
             total_correct = 0
             total_seen = 0
             loss_sum = 0
@@ -295,7 +295,7 @@ def train_one_epoch(sess, ops, train_writer):
             iou3d_correct_cnt = 0
         
         
-def eval_one_epoch(sess, ops, test_writer):
+def eval_one_epoch(sess, ops, test_writer, iou3d_thresh=0.7):
     ''' Simple evaluation for one epoch on the frustum dataset.
     ops is dict mapping from string to tf ops """
     '''
@@ -355,7 +355,7 @@ def eval_one_epoch(sess, ops, test_writer):
             total_correct_class[l] += (np.sum((preds_val==l) & (batch_label==l)))
         iou2ds_sum += np.sum(iou2ds)
         iou3ds_sum += np.sum(iou3ds)
-        iou3d_correct_cnt += np.sum(iou3ds>=0.7)
+        iou3d_correct_cnt += np.sum(iou3ds>=iou3d_thresh)
 
         for i in range(BATCH_SIZE):
             segp = preds_val[i,:]
@@ -377,8 +377,8 @@ def eval_one_epoch(sess, ops, test_writer):
     log_string('eval box IoU (ground/3D): %f / %f' % \
         (iou2ds_sum / float(num_batches*BATCH_SIZE), iou3ds_sum / \
             float(num_batches*BATCH_SIZE)))
-    log_string('eval box estimation accuracy (IoU=0.7): %f' % \
-        (float(iou3d_correct_cnt)/float(num_batches*BATCH_SIZE)))
+    log_string('eval box estimation accuracy (IoU={:.1f}): {:.3f}'.format(iou3d_thresh, \
+        (float(iou3d_correct_cnt)/float(num_batches*BATCH_SIZE))))
          
     EPOCH_CNT += 1
 
