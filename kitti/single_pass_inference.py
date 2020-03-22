@@ -28,16 +28,20 @@ import cPickle as pickle
 import argparse
 import pypcd
 
-MODELS = ["v1", "lite"]
-MODEL_SEL = 1
+MODELS = ["v1", "lite", "lite2"]
+MODEL_SEL = 2
 if MODELS[MODEL_SEL] == "v1":
     modelname = "frustum_pointnets_v1"
     MODEL_PATH = os.path.join(TRAIN_DIR, 'log_v1', 'model.ckpt')
     NUM_POINT = 1024
-else:
+elif MODELS[MODEL_SEL] == "lite":
     modelname = "frustum_pointnets_lite"
     MODEL_PATH = os.path.join(TRAIN_DIR, 'log_lite', 'model.ckpt')
     NUM_POINT = 128
+elif MODELS[MODEL_SEL] == "lite2":
+    modelname = "frustum_pointnets_lite2"
+    MODEL_PATH = os.path.join(TRAIN_DIR, 'log_lite2', 'model.ckpt')
+    NUM_POINT = 64
 MODEL = importlib.import_module(modelname)
 BATCH_SIZE = 32
 NUM_CHANNEL = 4
@@ -528,7 +532,7 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_
 
 if __name__ == '__main__':
     write_frustum_pcd = False
-    draw_img = True
+    draw_img = False
 
     run_mode = 2  # 0: kitti, 1: mule VLP32, 2: nuscenes
     if run_mode == 0:  # kitti
@@ -547,7 +551,7 @@ if __name__ == '__main__':
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Truck': 2}
         INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'nuscenes')
         lidar_format = 'nusc'
-        sel = 27 #6, 13, 14, 18, 23, 27, 34, 39
+        sel = 34 #6, 13, 14, 18, 23, 27, 34, 39
         DET_FILE = os.path.join(INPUT_DIR, "{:05d}.txt".format(sel))
         IMG_FILE = os.path.join(INPUT_DIR, "{:05d}.png".format(sel))
         LIDAR_FILE = os.path.join(INPUT_DIR, "{:05d}.bin".format(sel))
