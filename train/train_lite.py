@@ -12,7 +12,7 @@ import importlib
 import numpy as np
 import tensorflow as tf
 from datetime import datetime
-BASE_DIR = os.path.abspath('') # train/
+BASE_DIR = os.path.dirname(os.path.abspath(__file__)) # train/
 ROOT_DIR = os.path.dirname(BASE_DIR) # frustum-pointnets/
 sys.path.append(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'models')) # Allows directly importing models
@@ -74,10 +74,12 @@ if RUN_MODES[RUN_SEL]=='KITTI':
 else:
     train_file = os.path.join(ROOT_DIR, 'nuscenes', 'nusc_carpedtruck_train.pickle')
     val_file = os.path.join(ROOT_DIR, 'nuscenes', 'nusc_carpedtruck_val.pickle')
+    white_list = ['Car', 'Pedestrian', 'Truck']
     TRAIN_DATASET = provider.FrustumDataset(npoints=NUM_POINT, split='train',
-        rotate_to_center=True, overwritten_data_path=train_file, random_flip=True, random_shift=True, one_hot=True)
+        rotate_to_center=True, overwritten_data_path=train_file,
+        random_flip=True, random_shift=True, one_hot=True, white_list=white_list)
     TEST_DATASET = provider.FrustumDataset(npoints=NUM_POINT, split='val',
-        rotate_to_center=True, overwritten_data_path=val_file, one_hot=True)
+        rotate_to_center=True, overwritten_data_path=val_file, one_hot=True, white_list=white_list)
 
 def log_string(out_str):
     LOG_FOUT.write(out_str+'\n')
