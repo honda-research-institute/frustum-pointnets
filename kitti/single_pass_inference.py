@@ -63,6 +63,11 @@ g_mean_size_arr = np.zeros((NUM_SIZE_CLUSTER, 3))  # size clustrs
 for i in range(NUM_SIZE_CLUSTER):
     g_mean_size_arr[i, :] = g_type_mean_size[g_class2type[i]]
 
+img_bev_w, img_bev_h = 800, 800
+img_bev_resolution = 0.05
+SHOW_BOX3D = True
+SHOW_BOX_BEV = True
+
 
 # scan is Nx4 array
 def write2pcd(scan, pcd_file):
@@ -263,6 +268,8 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
             pc_rect[:, 0:3] = pc_rect_full[pc_frontal_mask, :]
             pc_rect[:, 3] = pc_velo[:, 3]
 
+            img_bev = draw_BEV_lidar(pc_rect, render=False)
+
             if write_frustum_pcd:
                 write2pcd(pc_velo, lidar_filename.replace('.bin', '_full.pcd'))
 
@@ -339,7 +346,7 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
         batch_prob[i] = prob
 
     # print("batch_rot_angle={}".format(batch_rot_angle))
-    return batch_data, batch_rot_angle, batch_prob, batch_one_hot_vec, calib, img
+    return batch_data, batch_rot_angle, batch_prob, batch_one_hot_vec, calib, img, img_bev
 
 
 def get_session_and_ops(batch_size, num_point):
@@ -392,6 +399,35 @@ def softmax(x):
     return probs
 
 
+# Converts coordinate from pc_rect to bev_img u, v
+def rect2bev_img(pt_rect):
+    x, z = pt_rect[0], pt_rect[2]
+    u = int(round(x / img_bev_resolution) + img_bev_w / 2)
+    v = int(img_bev_h - round(z / img_bev_resolution))
+    if 0 <= u < img_bev_w and 0 <= v < img_bev_h:
+        return [u, v]
+    else:
+        return [-1, -1]
+
+
+# pc_rect = (n,4) => x, y, z, intensity
+def draw_BEV_lidar(pc_rect, render = False):
+    img_bev = np.zeros([img_bev_h, img_bev_w, 3], dtype=np.uint8)
+    for pt_rect in pc_rect:
+        [u, v] = rect2bev_img(pt_rect)
+        if u>=0 and v>=0:
+            img_bev[v, u] = [255, 255, 255]
+    if render:
+        # Image.fromarray(img1).show()
+        plt.imshow(img_bev)
+        plt.show(block=False)
+        raw_input()
+        time.sleep(0.01)
+        plt.clf()  # will make the plot window empty
+
+    return img_bev
+
+
 # boxes2d = (n,4) => xmin, ymin, xmax, ymax
 def draw_boxes2d_on_img(boxes2d, img, render = True):
     img1 = np.copy(img)  # for 2d bbox
@@ -424,6 +460,39 @@ def draw_boxes3d_on_img(boxes3d, img, color = (255, 0, 0), thickness = 1, render
     if render:
         # Image.fromarray(img).show()
         plt.imshow(img)
+        plt.show(block=False)
+        raw_input()
+        time.sleep(0.01)
+        plt.clf()  # will make the plot window empty
+
+
+def draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, color = (255, 0, 0), thickness = 1, render=True):
+    for box3d_bev in boxes3d_bev:  # boxes3d_bev is (8,3)
+        box3d_bev_centroid = np.zeros(3)
+        box3d_bev_head =  np.zeros(3)
+        for k in range(0, 4):
+            i, j = k, (k + 1) % 4
+            [u0, v0] = rect2bev_img(box3d_bev[i, :])
+            [u1, v1] = rect2bev_img(box3d_bev[j, :])
+            box3d_bev_centroid += box3d_bev[i, :]
+            if k==0:
+                box3d_bev_head += box3d_bev[i, :]
+                box3d_bev_head += box3d_bev[j, :]
+            if u0 >= 0 and v0 >= 0 and u1 >= 0 and v1 >= 0:
+                # use LINE_AA for opencv3
+                cv2.line(img_bev, (u0, v0), (u1, v1), color, thickness, cv2.LINE_AA)
+
+        # Draw heading line
+        box3d_bev_centroid /= 4.0
+        box3d_bev_head /= 2.0
+        [u0, v0] = rect2bev_img(box3d_bev_centroid)
+        [u1, v1] = rect2bev_img(box3d_bev_head)
+        if u0 >= 0 and v0 >= 0 and u1 >= 0 and v1 >= 0:
+            # use LINE_AA for opencv3
+            cv2.line(img_bev, (u0, v0), (u1, v1), color, thickness, cv2.LINE_AA)
+
+    if render:
+        plt.imshow(img_bev)
         plt.show(block=False)
         raw_input()
         time.sleep(0.01)
@@ -491,7 +560,7 @@ def inference(sess, ops, pc, one_hot_vec, batch_size):
            size_cls, size_res  # , scores
 
 
-def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img):
+def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img, img_bev):
     batch_size = BATCH_SIZE
     batch_data_to_feed = np.zeros((batch_size, NUM_POINT, NUM_CHANNEL))
     batch_one_hot_to_feed = np.zeros((batch_size, 3))
@@ -516,6 +585,7 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_
     # Visualize network output on image
     # boxes3d = (n,8,2)
     boxes3d = np.zeros((cur_batch_size, 8, 2))
+    boxes3d_bev = np.zeros((cur_batch_size, 8, 3))
     for pick in range(cur_batch_size):
         h, w, l, tx, ty, tz, ry = from_prediction_to_label_format(batch_center_pred[pick],
                                                                   batch_hclass_pred[pick],
@@ -525,9 +595,10 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_
                                                                   batch_rot_angle[pick])
         # print("center={:.1f}, {:.1f}, {:.1f}, l/w/h={:.1f}, {:.1f}, {:.1f}, ry={:.2f}".format(tx, ty, tz, l, w, h, ry))
         # compute_projected_box3d returns (8,2)
-        boxes3d[pick] = utils.compute_projected_box3d(h, w, l, tx, ty, tz, ry, calib.P)
+        boxes3d[pick], boxes3d_bev[pick] = utils.compute_projected_box3d(h, w, l, tx, ty, tz, ry, calib.P)
 
-    draw_boxes3d_on_img(boxes3d, img, render=True)
+    draw_boxes3d_on_img(boxes3d, img, render=SHOW_BOX3D)
+    draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, render=SHOW_BOX_BEV)
 
 
 if __name__ == '__main__':
@@ -551,7 +622,7 @@ if __name__ == '__main__':
         INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'nuscenes')
         lidar_format = 'nusc'
         CALIB_FILE = os.path.join(INPUT_DIR, "calib.txt")
-        SAMPLES = [6, 13, 14, 18, 23, 27, 34, 39]
+        SAMPLES = [34] #[6, 13, 14, 18, 23, 27, 34, 39]
 
     type_whitelist = g_type2onehotclass.keys() # ['Car', 'Pedestrian', 'Cyclist', ...]
     batch_size = BATCH_SIZE
@@ -573,12 +644,12 @@ if __name__ == '__main__':
             LIDAR_FILE = os.path.join(INPUT_DIR, "{:05d}.bin".format(SAMPLE))
 
         t0 = time.time()  # start time
-        batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img = \
+        batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img, img_bev = \
             extract_frustum_data_rgb_detection(DET_FILE, IMG_FILE, LIDAR_FILE, CALIB_FILE,
                                                type_whitelist=type_whitelist,
                                                write_frustum_pcd=write_frustum_pcd,
                                                draw_img=draw_img, lidar_format=lidar_format)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img)
+        run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img, img_bev)
         t1 = time.time()  # end time
         print("time={:.3f}".format(t1 - t0))
