@@ -363,12 +363,12 @@ def compute_projected_box3d(h, w, l, tx, ty, tz, ry, P):
     # print 'cornsers_3d: ', corners_3d
     # only draw 3d bounding box for objs in front of the camera
     if np.any(corners_3d[2, :] < 0.1):
-        return None
+        return None, np.transpose(corners_3d)
 
     # project the 3d bounding box into the image plane
     corners_2d = project_to_image(np.transpose(corners_3d), P);
     # print 'corners_2d: ', corners_2d
-    return corners_2d
+    return corners_2d, np.transpose(corners_3d)
 
 
 def compute_orientation_3d(obj, P):

@@ -14,7 +14,7 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR,'models'))
 from box_util import box3d_iou
-from model_util import g_type2class, g_class2type, g_type2onehotclass
+from model_util import g_type2class, g_class2type
 from model_util import g_type_mean_size
 from model_util import NUM_HEADING_BIN, NUM_SIZE_CLUSTER
 
@@ -99,7 +99,8 @@ class FrustumDataset(object):
     '''
     def __init__(self, npoints, split,
                  random_flip=False, random_shift=False, rotate_to_center=False,
-                 overwritten_data_path=None, from_rgb_detection=False, one_hot=False):
+                 overwritten_data_path=None, from_rgb_detection=False, one_hot=False,
+                 white_list=['Car', 'Pedestrian', 'Cyclist']):
         '''
         Input:
             npoints: int scalar, number of points for frustum point cloud.
@@ -120,6 +121,12 @@ class FrustumDataset(object):
         self.random_shift = random_shift
         self.rotate_to_center = rotate_to_center
         self.one_hot = one_hot
+        self.white_list = white_list
+        self.type2onehotclass = {}
+        val = 0
+        for c in self.white_list:
+            self.type2onehotclass[c] = val
+            val += 1
         if overwritten_data_path is None:
             overwritten_data_path = os.path.join(ROOT_DIR,
                 'kitti/frustum_carpedcyc_%s.pickle'%(split))
@@ -158,9 +165,9 @@ class FrustumDataset(object):
         # Compute one hot vector
         if self.one_hot:
             cls_type = self.type_list[index]
-            assert(cls_type in ['Car', 'Pedestrian', 'Cyclist'])
+            assert(cls_type in self.white_list)
             one_hot_vec = np.zeros((3))
-            one_hot_vec[g_type2onehotclass[cls_type]] = 1
+            one_hot_vec[self.type2onehotclass[cls_type]] = 1
 
         # Get point cloud
         if self.rotate_to_center:

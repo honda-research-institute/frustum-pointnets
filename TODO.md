@@ -1,0 +1,1 @@
+- [ ] In single_pass_inference.py, project_velo_to_rect() is called again in get_lidar_in_image_fov(). Try to avoid repetition.
