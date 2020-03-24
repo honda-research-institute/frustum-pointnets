@@ -63,8 +63,8 @@ g_mean_size_arr = np.zeros((NUM_SIZE_CLUSTER, 3))  # size clustrs
 for i in range(NUM_SIZE_CLUSTER):
     g_mean_size_arr[i, :] = g_type_mean_size[g_class2type[i]]
 
-img_bev_w, img_bev_h = 800, 800
-img_bev_resolution = 0.05
+img_bev_w, img_bev_h = 400, 500
+img_bev_resolution = 0.1
 SHOW_BOX3D = True
 SHOW_BOX_BEV = True
 
@@ -444,7 +444,7 @@ def draw_boxes2d_on_img(boxes2d, img, render = True):
 
 
 # boxes3d = (n,8,2) => 8 corners per box with (x,y)
-def draw_boxes3d_on_img(boxes3d, img, color = (255, 0, 0), thickness = 1, render = True):
+def draw_boxes3d_on_img(boxes3d, img, ax, color = (255, 0, 0), thickness = 1, render = True):
     boxes3d = boxes3d.astype(np.int32)
     for box3d in boxes3d:  # box3d is (8,2)
         for k in range(0, 4):
@@ -458,15 +458,10 @@ def draw_boxes3d_on_img(boxes3d, img, color = (255, 0, 0), thickness = 1, render
             i, j = k, k + 4
             cv2.line(img, (box3d[i, 0], box3d[i, 1]), (box3d[j, 0], box3d[j, 1]), color, thickness, cv2.LINE_AA)
     if render:
-        # Image.fromarray(img).show()
-        plt.imshow(img)
-        plt.show(block=False)
-        raw_input()
-        time.sleep(0.01)
-        plt.clf()  # will make the plot window empty
+        ax.imshow(img)
 
 
-def draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, color = (255, 0, 0), thickness = 1, render=True):
+def draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, ax, color = (255, 0, 0), thickness = 1, render=True):
     for box3d_bev in boxes3d_bev:  # boxes3d_bev is (8,3)
         box3d_bev_centroid = np.zeros(3)
         box3d_bev_head =  np.zeros(3)
@@ -492,11 +487,7 @@ def draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, color = (255, 0, 0), thickness
             cv2.line(img_bev, (u0, v0), (u1, v1), color, thickness, cv2.LINE_AA)
 
     if render:
-        plt.imshow(img_bev)
-        plt.show(block=False)
-        raw_input()
-        time.sleep(0.01)
-        plt.clf()  # will make the plot window empty
+        ax.imshow(img_bev)
 
 
 def render_img(img):
@@ -597,8 +588,9 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_
         # compute_projected_box3d returns (8,2)
         boxes3d[pick], boxes3d_bev[pick] = utils.compute_projected_box3d(h, w, l, tx, ty, tz, ry, calib.P)
 
-    draw_boxes3d_on_img(boxes3d, img, render=SHOW_BOX3D)
-    draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, render=SHOW_BOX_BEV)
+    _, ax = plt.subplots(1, 2)
+    draw_boxes3d_on_img(boxes3d, img, ax[1], render=SHOW_BOX3D)
+    draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, ax[0], render=SHOW_BOX_BEV)
 
 
 if __name__ == '__main__':
@@ -653,3 +645,4 @@ if __name__ == '__main__':
         run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img, img_bev)
         t1 = time.time()  # end time
         print("time={:.3f}".format(t1 - t0))
+        plt.show()
