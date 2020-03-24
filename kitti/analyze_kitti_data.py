@@ -65,10 +65,7 @@ def analyze_frustum_data(idx_filename, split, type_whitelist=['Car']):
     dataset = kitti_object(os.path.join(ROOT_DIR, 'dataset/KITTI/object'), split)
     data_idx_list = [int(line.rstrip()) for line in open(idx_filename)]
 
-    pos_cnt = 0
-    all_cnt = 0
     for data_idx in tqdm.tqdm(data_idx_list):
-        #print('------------- ', data_idx)
         calib = dataset.get_calibration(data_idx)  # 3 by 4 matrix
         objects = dataset.get_label_objects(data_idx)
         pc_velo = dataset.get_lidar(data_idx)  # Nx4
