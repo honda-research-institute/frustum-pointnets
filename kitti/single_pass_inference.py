@@ -28,19 +28,19 @@ import cPickle as pickle
 import argparse
 import pypcd
 
-MODELS = ["v1", "lite", "lite2"]
+MODELS = ["kitti-v1", "kitti-lite2", "nusc-lite2"]
 MODEL_SEL = 2
-if MODELS[MODEL_SEL] == "v1":
+if MODELS[MODEL_SEL] == "kitti-v1":
     modelname = "frustum_pointnets_v1"
     MODEL_PATH = os.path.join(TRAIN_DIR, 'log_v1', 'model.ckpt')
     NUM_POINT = 1024
-elif MODELS[MODEL_SEL] == "lite":
-    modelname = "frustum_pointnets_lite"
-    MODEL_PATH = os.path.join(TRAIN_DIR, 'log_lite', 'model.ckpt')
-    NUM_POINT = 128
-elif MODELS[MODEL_SEL] == "lite2":
+elif MODELS[MODEL_SEL] == "kitti-lite2":
     modelname = "frustum_pointnets_lite2"
-    MODEL_PATH = os.path.join(TRAIN_DIR, 'log_lite2', 'model.ckpt')
+    MODEL_PATH = os.path.join(TRAIN_DIR, 'log_kitti_lite2', 'model.ckpt')
+    NUM_POINT = 64
+elif MODELS[MODEL_SEL] == "nusc-lite2":
+    modelname = "frustum_pointnets_lite2"
+    MODEL_PATH = os.path.join(TRAIN_DIR, 'log_nusc_lite2', 'model.ckpt')
     NUM_POINT = 64
 MODEL = importlib.import_module(modelname)
 BATCH_SIZE = 32
@@ -597,7 +597,7 @@ if __name__ == '__main__':
     write_frustum_pcd = False
     draw_img = False
 
-    run_mode = 2  # 0: kitti, 1: mule VLP32, 2: nuscenes
+    run_mode = 1  # 0: kitti, 1: mule VLP32, 2: nuscenes
     if run_mode == 0:  # kitti
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
         INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'kitti')
