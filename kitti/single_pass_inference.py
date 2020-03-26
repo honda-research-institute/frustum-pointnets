@@ -63,8 +63,8 @@ g_mean_size_arr = np.zeros((NUM_SIZE_CLUSTER, 3))  # size clustrs
 for i in range(NUM_SIZE_CLUSTER):
     g_mean_size_arr[i, :] = g_type_mean_size[g_class2type[i]]
 
-img_bev_w, img_bev_h = 400, 500
-img_bev_resolution = 0.1
+img_bev_w, img_bev_h = 800, 1000
+img_bev_resolution = 0.05
 SHOW_BOX3D = True
 SHOW_BOX_BEV = True
 
@@ -235,7 +235,7 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
                                        write_frustum_pcd = False,
                                        draw_img = False,
                                        img_height_threshold = 20,
-                                       lidar_point_threshold = 5,
+                                       lidar_point_threshold = 32,
                                        lidar_format = 'kitti'):
     det_type_list, det_box2d_list, det_prob_list = \
         read_det_file(det_filename)
@@ -404,18 +404,14 @@ def rect2bev_img(pt_rect):
     x, z = pt_rect[0], pt_rect[2]
     u = int(round(x / img_bev_resolution) + img_bev_w / 2)
     v = int(img_bev_h - round(z / img_bev_resolution))
-    if 0 <= u < img_bev_w and 0 <= v < img_bev_h:
-        return [u, v]
-    else:
-        return [-1, -1]
-
+    return [u, v]
 
 # pc_rect = (n,4) => x, y, z, intensity
 def draw_BEV_lidar(pc_rect, render = False):
     img_bev = np.zeros([img_bev_h, img_bev_w, 3], dtype=np.uint8)
     for pt_rect in pc_rect:
         [u, v] = rect2bev_img(pt_rect)
-        if u>=0 and v>=0:
+        if 0 <= u < img_bev_w and 0 <= v < img_bev_h:
             img_bev[v, u] = [255, 255, 255]
     if render:
         # Image.fromarray(img1).show()
@@ -473,18 +469,18 @@ def draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, ax, color = (255, 0, 0), thick
             if k==0:
                 box3d_bev_head += box3d_bev[i, :]
                 box3d_bev_head += box3d_bev[j, :]
-            if u0 >= 0 and v0 >= 0 and u1 >= 0 and v1 >= 0:
-                # use LINE_AA for opencv3
-                cv2.line(img_bev, (u0, v0), (u1, v1), color, thickness, cv2.LINE_AA)
+
+            # use LINE_AA for opencv3
+            cv2.line(img_bev, (u0, v0), (u1, v1), color, thickness, cv2.LINE_AA)
 
         # Draw heading line
         box3d_bev_centroid /= 4.0
         box3d_bev_head /= 2.0
         [u0, v0] = rect2bev_img(box3d_bev_centroid)
         [u1, v1] = rect2bev_img(box3d_bev_head)
-        if u0 >= 0 and v0 >= 0 and u1 >= 0 and v1 >= 0:
-            # use LINE_AA for opencv3
-            cv2.line(img_bev, (u0, v0), (u1, v1), color, thickness, cv2.LINE_AA)
+
+        # use LINE_AA for opencv3
+        cv2.line(img_bev, (u0, v0), (u1, v1), color, thickness, cv2.LINE_AA)
 
     if render:
         ax.imshow(img_bev)
