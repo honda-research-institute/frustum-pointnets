@@ -63,7 +63,7 @@ g_mean_size_arr = np.zeros((NUM_SIZE_CLUSTER, 3))  # size clustrs
 for i in range(NUM_SIZE_CLUSTER):
     g_mean_size_arr[i, :] = g_type_mean_size[g_class2type[i]]
 
-img_bev_w, img_bev_h = 800, 1000
+img_bev_w, img_bev_h = 700, 1000
 img_bev_resolution = 0.05
 SHOW_BOX3D = True
 SHOW_BOX_BEV = True
@@ -231,9 +231,9 @@ class FrustumFeeder(object):
 
 def extract_frustum_data_rgb_detection(det_filename, image_filename,
                                        lidar_filename, calib_filename,
+                                       ax,
                                        type_whitelist = ['Car'],
                                        write_frustum_pcd = False,
-                                       draw_img = False,
                                        img_height_threshold = 20,
                                        lidar_point_threshold = 10,
                                        lidar_format = 'kitti'):
@@ -274,9 +274,9 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
                 write2pcd(pc_velo, lidar_filename.replace('.bin', '_full.pcd'))
 
             img = get_kitti_image(image_filename)
-            if draw_img:
-                boxes2d = np.stack(det_box2d_list, axis=0)  # Nx4
-                draw_boxes2d_on_img(boxes2d, img)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            boxes2d = np.stack(det_box2d_list, axis=0)  # Nx4
+            draw_boxes2d_on_img(boxes2d, img, ax)
             img_height, img_width, img_channel = img.shape
             # TODO: project_velo_to_rect is called again in get_lidar_in_image_fov
             #       try to save it
@@ -404,7 +404,10 @@ def rect2bev_img(pt_rect):
     x, z = pt_rect[0], pt_rect[2]
     u = int(round(x / img_bev_resolution) + img_bev_w / 2)
     v = int(img_bev_h - round(z / img_bev_resolution))
+    #v = int(round(x / img_bev_resolution) + img_bev_h / 2)
+    #u = int(round(z / img_bev_resolution))
     return [u, v]
+
 
 # pc_rect = (n,4) => x, y, z, intensity
 def draw_BEV_lidar(pc_rect, render = False):
@@ -425,18 +428,12 @@ def draw_BEV_lidar(pc_rect, render = False):
 
 
 # boxes2d = (n,4) => xmin, ymin, xmax, ymax
-def draw_boxes2d_on_img(boxes2d, img, render = True):
+def draw_boxes2d_on_img(boxes2d, img, ax):
     img1 = np.copy(img)  # for 2d bbox
     for box2d in boxes2d:
         cv2.rectangle(img1, (int(box2d[0]), int(box2d[1])),
                       (int(box2d[2]), int(box2d[3])), (0, 255, 0), 2)
-    if render:
-        # Image.fromarray(img1).show()
-        plt.imshow(img1)
-        plt.show(block=False)
-        raw_input()
-        time.sleep(0.01)
-        plt.clf()  # will make the plot window empty
+    ax.imshow(img1)
 
 
 # boxes3d = (n,8,2) => 8 corners per box with (x,y)
@@ -457,16 +454,16 @@ def draw_boxes3d_on_img(boxes3d, img, ax, color = (255, 0, 0), thickness = 1, re
         ax.imshow(img)
 
 
-def draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, ax, color = (255, 0, 0), thickness = 1, render=True):
+def draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, ax, color = (255, 0, 0), thickness = 1, render = True):
     for box3d_bev in boxes3d_bev:  # boxes3d_bev is (8,3)
         box3d_bev_centroid = np.zeros(3)
-        box3d_bev_head =  np.zeros(3)
+        box3d_bev_head = np.zeros(3)
         for k in range(0, 4):
             i, j = k, (k + 1) % 4
             [u0, v0] = rect2bev_img(box3d_bev[i, :])
             [u1, v1] = rect2bev_img(box3d_bev[j, :])
             box3d_bev_centroid += box3d_bev[i, :]
-            if k==0:
+            if k == 0:
                 box3d_bev_head += box3d_bev[i, :]
                 box3d_bev_head += box3d_bev[j, :]
 
@@ -547,10 +544,10 @@ def inference(sess, ops, pc, one_hot_vec, batch_size):
                           for i in range(pc.shape[0])])
 
     return np.argmax(logits, 2), centers, heading_cls, heading_res, \
-           size_cls, size_res, valid #, scores
+           size_cls, size_res, valid  # , scores
 
 
-def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img, img_bev):
+def run_inference(sess, ops, batch_data, batch_rot_angle, batch_one_hot_vec, calib, img, img_bev, ax1, ax2):
     batch_size = BATCH_SIZE
     batch_data_to_feed = np.zeros((batch_size, NUM_POINT, NUM_CHANNEL))
     batch_one_hot_to_feed = np.zeros((batch_size, 3))
@@ -598,9 +595,9 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_
         boxes3d_bev = np.append(boxes3d_bev, box3d_bev[None, :], axis=0)
 
     print("Num of good detections = {}".format(boxes3d.shape[0]))
-    _, ax = plt.subplots(1, 2)
-    draw_boxes3d_on_img(boxes3d, img, ax[1], render=SHOW_BOX3D)
-    draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, ax[0], render=SHOW_BOX_BEV)
+
+    draw_boxes3d_on_img(boxes3d, img, ax1, render=SHOW_BOX3D)
+    draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, ax2, render=SHOW_BOX_BEV)
 
 
 if __name__ == '__main__':
@@ -611,7 +608,7 @@ if __name__ == '__main__':
     if run_mode == 0:  # kitti
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
         INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'kitti')
-        SAMPLES = ['001960', '000851', '000006', '000003']
+        SAMPLES = ['000851'] #['001960', '000851', '000006', '000003']
         lidar_format = 'kitti'
     elif run_mode == 1:  # mule
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
@@ -624,9 +621,9 @@ if __name__ == '__main__':
         INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'nuscenes')
         lidar_format = 'nusc'
         CALIB_FILE = os.path.join(INPUT_DIR, "calib.txt")
-        SAMPLES = [34] #[6, 13, 14, 18, 23, 27, 34, 39]
+        SAMPLES = [34]  # [6, 13, 14, 18, 23, 27, 34, 39]
 
-    type_whitelist = g_type2onehotclass.keys() # ['Car', 'Pedestrian', 'Cyclist', ...]
+    type_whitelist = g_type2onehotclass.keys()  # ['Car', 'Pedestrian', 'Cyclist', ...]
     batch_size = BATCH_SIZE
     sess, ops = get_session_and_ops(batch_size=batch_size, num_point=NUM_POINT)
 
@@ -646,13 +643,14 @@ if __name__ == '__main__':
             LIDAR_FILE = os.path.join(INPUT_DIR, "{:05d}.bin".format(SAMPLE))
 
         t0 = time.time()  # start time
-        batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img, img_bev = \
-            extract_frustum_data_rgb_detection(DET_FILE, IMG_FILE, LIDAR_FILE, CALIB_FILE,
+        _, ax = plt.subplots(1, 3)
+
+        batch_data, batch_rot_angle, _, batch_one_hot_vec, calib, img, img_bev = \
+            extract_frustum_data_rgb_detection(DET_FILE, IMG_FILE, LIDAR_FILE, CALIB_FILE, ax[0],
                                                type_whitelist=type_whitelist,
                                                write_frustum_pcd=write_frustum_pcd,
-                                               draw_img=draw_img, lidar_format=lidar_format)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img, img_bev)
+                                               lidar_format=lidar_format)
+        run_inference(sess, ops, batch_data, batch_rot_angle, batch_one_hot_vec, calib, img, img_bev, ax[1], ax[2])
         t1 = time.time()  # end time
         print("time={:.3f}".format(t1 - t0))
         plt.show()
