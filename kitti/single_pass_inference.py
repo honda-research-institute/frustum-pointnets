@@ -525,7 +525,7 @@ def inference(sess, ops, pc, one_hot_vec, batch_size):
         size_logits[i * batch_size:(i + 1) * batch_size, ...] = batch_size_scores
         size_residuals[i * batch_size:(i + 1) * batch_size, ...] = batch_size_residuals
 
-        valid[i * batch_size:(i + 1) * batch_size, ...] = (np.sum(batch_masks, axis=1) > 0)
+        valid[i * batch_size:(i + 1) * batch_size, ...] = np.any(batch_masks, axis=1)
 
         if False:
             # Compute scores
