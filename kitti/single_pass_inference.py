@@ -235,7 +235,7 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
                                        write_frustum_pcd = False,
                                        draw_img = False,
                                        img_height_threshold = 20,
-                                       lidar_point_threshold = 32,
+                                       lidar_point_threshold = 10,
                                        lidar_format = 'kitti'):
     det_type_list, det_box2d_list, det_prob_list = \
         read_det_file(det_filename)
@@ -331,7 +331,6 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
 
     bsize = len(input_list)
     assert bsize <= BATCH_SIZE, 'num detections must be <= {}'.format(BATCH_SIZE)
-    print("Num of good detections = {}".format(bsize))
     batch_data = np.zeros((bsize, NUM_POINT, NUM_CHANNEL))
     batch_rot_angle = np.zeros((bsize,))
     batch_prob = np.zeros((bsize,))
@@ -386,6 +385,7 @@ def get_session_and_ops(batch_size, num_point):
                'is_training_pl': is_training_pl,
                'logits': end_points['mask_logits'],
                'center': end_points['center'],
+               'mask': end_points['mask'],
                'end_points': end_points,
                'loss': loss}
         return sess, ops
@@ -501,6 +501,7 @@ def inference(sess, ops, pc, one_hot_vec, batch_size):
     size_logits = np.zeros((pc.shape[0], NUM_SIZE_CLUSTER))
     size_residuals = np.zeros((pc.shape[0], NUM_SIZE_CLUSTER, 3))
     scores = np.zeros((pc.shape[0],))  # 3D box score
+    valid = np.zeros((pc.shape[0],), dtype=bool)  # valid bit
 
     ep = ops['end_points']
     for i in range(num_batches):
@@ -509,10 +510,10 @@ def inference(sess, ops, pc, one_hot_vec, batch_size):
             ops['one_hot_vec_pl']: one_hot_vec[i * batch_size:(i + 1) * batch_size, :],
             ops['is_training_pl']: False}
 
-        batch_logits, batch_centers, \
+        batch_logits, batch_centers, batch_masks, \
         batch_heading_scores, batch_heading_residuals, \
         batch_size_scores, batch_size_residuals = \
-            sess.run([ops['logits'], ops['center'],
+            sess.run([ops['logits'], ops['center'], ops['mask'],
                       ep['heading_scores'], ep['heading_residuals'],
                       ep['size_scores'], ep['size_residuals']],
                      feed_dict=feed_dict)
@@ -523,6 +524,8 @@ def inference(sess, ops, pc, one_hot_vec, batch_size):
         heading_residuals[i * batch_size:(i + 1) * batch_size, ...] = batch_heading_residuals
         size_logits[i * batch_size:(i + 1) * batch_size, ...] = batch_size_scores
         size_residuals[i * batch_size:(i + 1) * batch_size, ...] = batch_size_residuals
+
+        valid[i * batch_size:(i + 1) * batch_size, ...] = (np.sum(batch_masks, axis=1) > 0)
 
         if False:
             # Compute scores
@@ -544,7 +547,7 @@ def inference(sess, ops, pc, one_hot_vec, batch_size):
                           for i in range(pc.shape[0])])
 
     return np.argmax(logits, 2), centers, heading_cls, heading_res, \
-           size_cls, size_res  # , scores
+           size_cls, size_res, valid #, scores
 
 
 def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_one_hot_vec, calib, img, img_bev):
@@ -558,7 +561,8 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_
     # Run one batch inference
     batch_output, batch_center_pred, \
     batch_hclass_pred, batch_hres_pred, \
-    batch_sclass_pred, batch_sres_pred = \
+    batch_sclass_pred, batch_sres_pred, \
+    batch_valid = \
         inference(sess, ops, batch_data_to_feed,
                   batch_one_hot_to_feed, batch_size=batch_size)
 
@@ -568,12 +572,19 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_
     # print(batch_hclass_pred[:cur_batch_size])
     # print("size=")
     # print(batch_sclass_pred[:cur_batch_size])
+    # print("batch_score=", batch_score)
+    # print("batch_valid=", batch_valid)
 
     # Visualize network output on image
     # boxes3d = (n,8,2)
-    boxes3d = np.zeros((cur_batch_size, 8, 2))
-    boxes3d_bev = np.zeros((cur_batch_size, 8, 3))
+    boxes3d = np.zeros((0, 8, 2))
+    boxes3d_bev = np.zeros((0, 8, 3))
     for pick in range(cur_batch_size):
+        if not batch_valid[pick]:
+            print('det %d: not valid' % (pick + 1))
+            continue
+        else:
+            print('det %d: valid' % (pick + 1))
         h, w, l, tx, ty, tz, ry = from_prediction_to_label_format(batch_center_pred[pick],
                                                                   batch_hclass_pred[pick],
                                                                   batch_hres_pred[pick],
@@ -582,8 +593,11 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_rgb_prob, batch_
                                                                   batch_rot_angle[pick])
         # print("center={:.1f}, {:.1f}, {:.1f}, l/w/h={:.1f}, {:.1f}, {:.1f}, ry={:.2f}".format(tx, ty, tz, l, w, h, ry))
         # compute_projected_box3d returns (8,2)
-        boxes3d[pick], boxes3d_bev[pick] = utils.compute_projected_box3d(h, w, l, tx, ty, tz, ry, calib.P)
+        box3d, box3d_bev = utils.compute_projected_box3d(h, w, l, tx, ty, tz, ry, calib.P)
+        boxes3d = np.append(boxes3d, box3d[None, :], axis=0)
+        boxes3d_bev = np.append(boxes3d_bev, box3d_bev[None, :], axis=0)
 
+    print("Num of good detections = {}".format(boxes3d.shape[0]))
     _, ax = plt.subplots(1, 2)
     draw_boxes3d_on_img(boxes3d, img, ax[1], render=SHOW_BOX3D)
     draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, ax[0], render=SHOW_BOX_BEV)
@@ -593,7 +607,7 @@ if __name__ == '__main__':
     write_frustum_pcd = False
     draw_img = False
 
-    run_mode = 1  # 0: kitti, 1: mule VLP32, 2: nuscenes
+    run_mode = 0  # 0: kitti, 1: mule VLP32, 2: nuscenes
     if run_mode == 0:  # kitti
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
         INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'kitti')
@@ -618,10 +632,10 @@ if __name__ == '__main__':
 
     for SAMPLE in SAMPLES:
         if run_mode == 0:
-            DET_FILE = os.path.join(INPUT_DIR, "detections_{:s}.txt".format(SAMPLE))
+            DET_FILE = os.path.join(INPUT_DIR, "det_{:s}.txt".format(SAMPLE))
             IMG_FILE = os.path.join(INPUT_DIR, "{:s}.png".format(SAMPLE))
             LIDAR_FILE = os.path.join(INPUT_DIR, "{:s}.bin".format(SAMPLE))
-            CALIB_FILE = os.path.join(INPUT_DIR, "{:s}.txt".format(SAMPLE))
+            CALIB_FILE = os.path.join(INPUT_DIR, "calib_{:s}.txt".format(SAMPLE))
         elif run_mode == 1:
             DET_FILE = os.path.join(INPUT_DIR, "{:s}.txt".format(SAMPLE))
             IMG_FILE = os.path.join(INPUT_DIR, "{:s}.png".format(SAMPLE))
