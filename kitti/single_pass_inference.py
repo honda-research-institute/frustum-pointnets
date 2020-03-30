@@ -604,11 +604,11 @@ if __name__ == '__main__':
     write_frustum_pcd = False
     draw_img = False
 
-    run_mode = 0  # 0: kitti, 1: mule VLP32, 2: nuscenes
+    run_mode = 2  # 0: kitti, 1: mule VLP32, 2: nuscenes
     if run_mode == 0:  # kitti
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
         INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'kitti')
-        SAMPLES = ['000851'] #['001960', '000851', '000006', '000003']
+        SAMPLES = ['001960', '000851', '000006', '000003']
         lidar_format = 'kitti'
     elif run_mode == 1:  # mule
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
@@ -621,7 +621,7 @@ if __name__ == '__main__':
         INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'nuscenes')
         lidar_format = 'nusc'
         CALIB_FILE = os.path.join(INPUT_DIR, "calib.txt")
-        SAMPLES = [34]  # [6, 13, 14, 18, 23, 27, 34, 39]
+        SAMPLES = [6, 13, 14, 18, 23, 27, 34, 39]
 
     type_whitelist = g_type2onehotclass.keys()  # ['Car', 'Pedestrian', 'Cyclist', ...]
     batch_size = BATCH_SIZE
