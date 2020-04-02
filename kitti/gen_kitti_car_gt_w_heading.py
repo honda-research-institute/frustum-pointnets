@@ -83,7 +83,7 @@ def gen_data(idx_filename, save_to, split, type_whitelist, min_box_height = 20):
             ratio_front = width_front / box2d_width
             ratio_rear = width_rear / box2d_width
             ratio_side = width_side / box2d_width
-            ratio_front_rear = max(ratio_front, ratio_rear)
+            ratio_front_rear = min(max(ratio_front, ratio_rear), 1.0)
 
             box2d_center = np.array([(xmin + xmax) / 2.0, (ymin + ymax) / 2.0])
             if VERBOSE:
@@ -92,7 +92,7 @@ def gen_data(idx_filename, save_to, split, type_whitelist, min_box_height = 20):
                                      ratio_front, ratio_rear, ratio_side))
 
             # collect results
-            boxes_list.append([xmin, ymin, xmax, ymax, obj3d.type, ratio_front_rear, ratio_side])
+            boxes_list.append([xmin, ymin, xmax, ymax, obj3d.type, ratio_front_rear])
 
         if boxes_list:
             # add to dict
@@ -111,15 +111,15 @@ def gen_data(idx_filename, save_to, split, type_whitelist, min_box_height = 20):
 
 if __name__ == '__main__':
     type_whitelist = ['Car', 'Van', 'Truck']
-
+    kitti_dir = os.path.join(ROOT_DIR, 'dataset/KITTI/object')
     gen_data( \
         os.path.join(BASE_DIR, 'image_sets/train.txt'),
-        os.path.join(BASE_DIR, 'image_sets/train_car_gt_w_heading.pkl'),
+        os.path.join(kitti_dir, 'train_car_gt_w_heading.pkl'),
         'training',
         type_whitelist=type_whitelist)
 
     gen_data( \
         os.path.join(BASE_DIR, 'image_sets/val.txt'),
-        os.path.join(BASE_DIR, 'image_sets/val_car_gt_w_heading.pkl'),
+        os.path.join(kitti_dir, 'val_car_gt_w_heading.pkl'),
         'training',
         type_whitelist=type_whitelist)
