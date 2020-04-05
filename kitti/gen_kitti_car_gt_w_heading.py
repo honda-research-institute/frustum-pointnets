@@ -36,6 +36,7 @@ def gen_data(idx_filename, save_to, split, type_whitelist, min_box_height = 20):
 
     VERBOSE = 0
     SHOW_IMG = 0
+    SAVE_PKL = 1
     idx_filename_corrected = idx_filename.replace(".txt", "_corrected.txt")
     fp_corrected = open(idx_filename_corrected, 'w')
     print (idx_filename_corrected)
@@ -43,7 +44,12 @@ def gen_data(idx_filename, save_to, split, type_whitelist, min_box_height = 20):
     data_idx_list = [int(line.rstrip()) for line in open(idx_filename)]
 
     my_dict = dict()
-    for data_idx in tqdm.tqdm(data_idx_list):
+    if VERBOSE:
+        data_idx_range = data_idx_list
+    else:
+        data_idx_range = tqdm.tqdm(data_idx_list)
+
+    for data_idx in data_idx_range:
         objects = dataset.get_label_objects(data_idx)
         calib = dataset.get_calibration(data_idx)
 
@@ -94,8 +100,11 @@ def gen_data(idx_filename, save_to, split, type_whitelist, min_box_height = 20):
                       ":.2f}".format(int(box2d_center[0]), int(box2d_center[1]), \
                                      ratio_front, ratio_rear, ratio_side))
 
+            width_front_rear = max(width_front, width_rear)
+            heading_ratio = width_front_rear / (width_front_rear + width_side)
+
             # collect results
-            boxes_list.append([xmin, ymin, xmax, ymax, obj3d.type, ratio_front_rear])
+            boxes_list.append([xmin, ymin, xmax, ymax, obj3d.type, heading_ratio])
 
         if boxes_list:
             # add to dict
@@ -113,8 +122,9 @@ def gen_data(idx_filename, save_to, split, type_whitelist, min_box_height = 20):
                 plt.show()
 
     fp_corrected.close()
-    with open(save_to, 'wb') as fp:
-        pickle.dump(my_dict, fp)
+    if SAVE_PKL:
+        with open(save_to, 'wb') as fp:
+            pickle.dump(my_dict, fp)
 
 if __name__ == '__main__':
     type_whitelist = ['Car', 'Van', 'Truck']
