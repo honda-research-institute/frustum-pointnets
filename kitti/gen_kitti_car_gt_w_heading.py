@@ -36,10 +36,12 @@ def gen_data(idx_filename, save_to, split, type_whitelist, min_box_height = 20):
 
     VERBOSE = 0
     SHOW_IMG = 0
+    GEN_CORRECTED_FILELIST = 0 # generate new filelist containing whitelist cls
     SAVE_PKL = 1
-    idx_filename_corrected = idx_filename.replace(".txt", "_corrected.txt")
-    fp_corrected = open(idx_filename_corrected, 'w')
-    print (idx_filename_corrected)
+    if GEN_CORRECTED_FILELIST:
+        idx_filename_corrected = idx_filename.replace(".txt", "_corrected.txt")
+        fp_corrected = open(idx_filename_corrected, 'w')
+        print (idx_filename_corrected)
     dataset = kitti_object(os.path.join(ROOT_DIR, 'dataset/KITTI/object'), split)
     data_idx_list = [int(line.rstrip()) for line in open(idx_filename)]
 
@@ -92,7 +94,6 @@ def gen_data(idx_filename, save_to, split, type_whitelist, min_box_height = 20):
             ratio_front = width_front / box2d_width
             ratio_rear = width_rear / box2d_width
             ratio_side = width_side / box2d_width
-            ratio_front_rear = min(max(ratio_front, ratio_rear), 1.0)
 
             box2d_center = np.array([(xmin + xmax) / 2.0, (ymin + ymax) / 2.0])
             if VERBOSE:
@@ -110,8 +111,9 @@ def gen_data(idx_filename, save_to, split, type_whitelist, min_box_height = 20):
             # add to dict
             my_dict['%06d' % (data_idx)] = boxes_list
 
-            # Write new index file (excluding image without cars)
-            fp_corrected.write("{:06d}\n".format(data_idx))
+            if GEN_CORRECTED_FILELIST:
+                # Write new index file (excluding image without cars)
+                fp_corrected.write("{:06d}\n".format(data_idx))
 
             # Show img
             if SHOW_IMG:
@@ -121,7 +123,8 @@ def gen_data(idx_filename, save_to, split, type_whitelist, min_box_height = 20):
                 plt.imshow(img)
                 plt.show()
 
-    fp_corrected.close()
+    if GEN_CORRECTED_FILELIST:
+        fp_corrected.close()
     if SAVE_PKL:
         with open(save_to, 'wb') as fp:
             pickle.dump(my_dict, fp)

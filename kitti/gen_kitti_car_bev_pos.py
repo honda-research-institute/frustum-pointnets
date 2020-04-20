@@ -34,6 +34,7 @@ def gen_data(idx_filename, save_to, split, type_whitelist, min_box_height = 20):
     '''
 
     VERBOSE = 0
+    REMOVE_REAR_OBJ = 1 # remove objects behind velo
     SAVE_PKL = 1
     dataset = kitti_object(os.path.join(ROOT_DIR, 'dataset/KITTI/object'), split)
     data_idx_list = [int(line.rstrip()) for line in open(idx_filename)]
@@ -58,6 +59,10 @@ def gen_data(idx_filename, save_to, split, type_whitelist, min_box_height = 20):
             obj_ctr_cam = obj3d.t # location (x,y,z) in camera coord
             obj_ctr_cam = np.array(obj_ctr_cam)[np.newaxis, ...] # convert to numpy nx3
             obj_ctr_vel = calib.project_ref_to_velo(obj_ctr_cam)[0] # velo coord
+
+            # Remove objects behind velo
+            if REMOVE_REAR_OBJ and obj_ctr_vel[0] < 0:
+                continue
 
             if VERBOSE:
                 print("idx={:06d}, center={:.1f} {:.1f}".format(data_idx, obj_ctr_vel[0], obj_ctr_vel[1]))
