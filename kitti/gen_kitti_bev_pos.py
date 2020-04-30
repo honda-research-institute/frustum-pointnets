@@ -79,16 +79,16 @@ def gen_data(idx_filename, save_to, split, type_whitelist, min_box_height = 20):
             pickle.dump(my_dict, fp)
 
 if __name__ == '__main__':
-    type_whitelist = ['Car', 'Van', 'Truck']
+    type_whitelist = {'Car': 1, 'Van': 1, 'Truck': 1, 'Pedestrian': 2, 'Person_sitting': 2, 'Cyclist': 3}
     kitti_dir = os.path.join(ROOT_DIR, 'dataset/KITTI/object')
     gen_data( \
         os.path.join(BASE_DIR, 'image_sets/train.txt'),
-        os.path.join(kitti_dir, 'train_car_gt_bev.pkl'),
+        os.path.join(kitti_dir, 'train_carpedcyc_gt_bev.pkl'),
         'training',
         type_whitelist=type_whitelist)
 
     gen_data( \
         os.path.join(BASE_DIR, 'image_sets/val.txt'),
-        os.path.join(kitti_dir, 'val_car_gt_bev.pkl'),
+        os.path.join(kitti_dir, 'val_carpedcyc_gt_bev.pkl'),
         'training',
         type_whitelist=type_whitelist)

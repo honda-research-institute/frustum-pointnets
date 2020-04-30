@@ -29,7 +29,7 @@ import argparse
 import pypcd
 
 MODELS = ["kitti-v1", "kitti-lite2", "nusc-lite2"]
-MODEL_SEL = 2
+MODEL_SEL = 1
 if MODELS[MODEL_SEL] == "kitti-v1":
     modelname = "frustum_pointnets_v1"
     MODEL_PATH = os.path.join(TRAIN_DIR, 'log_v1', 'model.ckpt')
@@ -63,7 +63,7 @@ g_mean_size_arr = np.zeros((NUM_SIZE_CLUSTER, 3))  # size clustrs
 for i in range(NUM_SIZE_CLUSTER):
     g_mean_size_arr[i, :] = g_type_mean_size[g_class2type[i]]
 
-img_bev_w, img_bev_h = 700, 1000
+img_bev_w, img_bev_h = 700, 1400
 img_bev_resolution = 0.05
 SHOW_BOX3D = True
 SHOW_BOX_BEV = True
@@ -604,7 +604,7 @@ if __name__ == '__main__':
     write_frustum_pcd = False
     draw_img = False
 
-    run_mode = 2  # 0: kitti, 1: mule VLP32, 2: nuscenes
+    run_mode = 3  # 0: kitti, 1: mule VLP32, 2: nuscenes, 3: white-2x
     if run_mode == 0:  # kitti
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
         INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'kitti')
@@ -616,12 +616,18 @@ if __name__ == '__main__':
         CALIB_FILE = os.path.join(INPUT_DIR, "calib.txt")
         SAMPLES = ['000610', '000267', '000072', '000220', '000100', '000010', '000040']
         lidar_format = 'mule'
-    else:  # nuscenes
+    elif run_mode == 2:  # nuscenes
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Truck': 2}
         INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'nuscenes')
         lidar_format = 'nusc'
         CALIB_FILE = os.path.join(INPUT_DIR, "calib.txt")
         SAMPLES = [6, 13, 14, 18, 23, 27, 34, 39]
+    else: # white-2x
+        g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
+        INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'white-2x')
+        lidar_format = 'kitti'
+        CALIB_FILE = os.path.join(INPUT_DIR, "calib.txt")
+        SAMPLES = ['001060', '001080', '001330', '001545', '001680', '002055']
 
     type_whitelist = g_type2onehotclass.keys()  # ['Car', 'Pedestrian', 'Cyclist', ...]
     batch_size = BATCH_SIZE
@@ -637,10 +643,14 @@ if __name__ == '__main__':
             DET_FILE = os.path.join(INPUT_DIR, "{:s}.txt".format(SAMPLE))
             IMG_FILE = os.path.join(INPUT_DIR, "{:s}.png".format(SAMPLE))
             LIDAR_FILE = os.path.join(INPUT_DIR, "{:s}.pcd".format(SAMPLE))
-        else:
+        elif run_mode == 2:
             DET_FILE = os.path.join(INPUT_DIR, "{:05d}.txt".format(SAMPLE))
             IMG_FILE = os.path.join(INPUT_DIR, "{:05d}.png".format(SAMPLE))
             LIDAR_FILE = os.path.join(INPUT_DIR, "{:05d}.bin".format(SAMPLE))
+        else:
+            DET_FILE = os.path.join(INPUT_DIR, "{:s}.txt".format(SAMPLE))
+            IMG_FILE = os.path.join(INPUT_DIR, "{:s}.png".format(SAMPLE))
+            LIDAR_FILE = os.path.join(INPUT_DIR, "{:s}.bin".format(SAMPLE))
 
         t0 = time.time()  # start time
         _, ax = plt.subplots(1, 3)
