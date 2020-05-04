@@ -29,7 +29,7 @@ import argparse
 import pypcd
 
 MODELS = ["kitti-v1", "kitti-lite2", "nusc-lite2"]
-MODEL_SEL = 1
+MODEL_SEL = 0
 if MODELS[MODEL_SEL] == "kitti-v1":
     modelname = "frustum_pointnets_v1"
     MODEL_PATH = os.path.join(TRAIN_DIR, 'log_v1', 'model.ckpt')
@@ -88,20 +88,19 @@ def write2pcd(scan, pcd_file):
             f.write("{} {} {} 0 0 0\n".format(scan[i, 0], scan[i, 1], scan[i, 2]))
 
 
-# File format: xxx.png type conf xmin ymin xmax ymax
+''' det file format: type_str conf xmin ymin xmax ymax '''
 def read_det_file(det_filename):
     ''' Parse lines in 2D detection output files '''
-    # det_id2str = {1: 'Pedestrian', 2: 'Car', 3: 'Cyclist'}
-    det_id2str = {1: 'Pedestrian', 2: 'Car', 3: 'Truck'}
     type_list = []
     prob_list = []
     box2d_list = []
     for line in open(det_filename, 'r'):
-        t = line.rstrip().split(" ")
-        category, prob = int(t[1]), float(t[2])
-        type_list.append(det_id2str[category])
+        d = line.rstrip().split(" ")
+        category, prob = d[0], float(d[1])
+        # category=='Pedestrian', 'Car', 'Cyclist', ...
+        type_list.append(category)
         prob_list.append(prob)
-        box2d_list.append(np.array([float(t[i]) for i in range(3, 7)]))
+        box2d_list.append(np.array([float(coord) for coord in d[2:]]))
     return type_list, box2d_list, prob_list
 
 
@@ -604,7 +603,7 @@ if __name__ == '__main__':
     write_frustum_pcd = False
     draw_img = False
 
-    run_mode = 3  # 0: kitti, 1: mule VLP32, 2: nuscenes, 3: white-2x
+    run_mode = 4  # 0: kitti, 1: mule VLP32, 2: nuscenes, 3: white-2x, 4: kitti pseudo-lidar
     if run_mode == 0:  # kitti
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
         INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'kitti')
@@ -622,12 +621,17 @@ if __name__ == '__main__':
         lidar_format = 'nusc'
         CALIB_FILE = os.path.join(INPUT_DIR, "calib.txt")
         SAMPLES = [6, 13, 14, 18, 23, 27, 34, 39]
-    else: # white-2x
+    elif run_mode == 3: # white-2x
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
         INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'white-2x')
         lidar_format = 'kitti'
         CALIB_FILE = os.path.join(INPUT_DIR, "calib.txt")
         SAMPLES = ['001060', '001080', '001330', '001545', '001680', '002055']
+    elif run_mode == 4:  # kitti pseudo-lidar
+        g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
+        INPUT_DIR = os.path.join(ROOT_DIR, 'dataset', 'KITTI', 'object', 'training') # pseudo-lidar
+        SAMPLES = ['007319', '007405', '007410', '000010']
+        lidar_format = 'kitti'
 
     type_whitelist = g_type2onehotclass.keys()  # ['Car', 'Pedestrian', 'Cyclist', ...]
     batch_size = BATCH_SIZE
@@ -647,10 +651,15 @@ if __name__ == '__main__':
             DET_FILE = os.path.join(INPUT_DIR, "{:05d}.txt".format(SAMPLE))
             IMG_FILE = os.path.join(INPUT_DIR, "{:05d}.png".format(SAMPLE))
             LIDAR_FILE = os.path.join(INPUT_DIR, "{:05d}.bin".format(SAMPLE))
-        else:
+        elif run_mode == 3:
             DET_FILE = os.path.join(INPUT_DIR, "{:s}.txt".format(SAMPLE))
             IMG_FILE = os.path.join(INPUT_DIR, "{:s}.png".format(SAMPLE))
             LIDAR_FILE = os.path.join(INPUT_DIR, "{:s}.bin".format(SAMPLE))
+        elif run_mode == 4:
+            DET_FILE = os.path.join(INPUT_DIR, "det_2", "{:s}.txt".format(SAMPLE))
+            IMG_FILE = os.path.join(INPUT_DIR, "image_2", "{:s}.png".format(SAMPLE))
+            LIDAR_FILE = os.path.join(INPUT_DIR, "velodyne", "{:s}.bin".format(SAMPLE))
+            CALIB_FILE = os.path.join(INPUT_DIR, "calib", "{:s}.txt".format(SAMPLE))
 
         t0 = time.time()  # start time
         _, ax = plt.subplots(1, 3)
