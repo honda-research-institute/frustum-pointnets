@@ -13,6 +13,8 @@ import importlib
 import cv2
 from PIL import Image
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import random
 import time
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -233,11 +235,13 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
                                        ax,
                                        type_whitelist = ['Car'],
                                        write_frustum_pcd = False,
-                                       img_height_threshold = 20,
+                                       img_height_threshold = 10,
                                        lidar_point_threshold = 10,
                                        lidar_format = 'kitti'):
     det_type_list, det_box2d_list, det_prob_list = \
         read_det_file(det_filename)
+    if not det_type_list:
+        return False, None, None, None, None, None, None, None
 
     type_list = []
     box2d_list = []
@@ -344,7 +348,7 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
         batch_prob[i] = prob
 
     # print("batch_rot_angle={}".format(batch_rot_angle))
-    return batch_data, batch_rot_angle, batch_prob, batch_one_hot_vec, calib, img, img_bev
+    return True, batch_data, batch_rot_angle, batch_prob, batch_one_hot_vec, calib, img, img_bev
 
 
 def get_session_and_ops(batch_size, num_point):
@@ -436,7 +440,7 @@ def draw_boxes2d_on_img(boxes2d, img, ax):
 
 
 # boxes3d = (n,8,2) => 8 corners per box with (x,y)
-def draw_boxes3d_on_img(boxes3d, img, ax, color = (255, 0, 0), thickness = 1, render = True):
+def draw_boxes3d_on_img(boxes3d, img, ax, color = (255, 0, 0), thickness = 2, render = True):
     boxes3d = boxes3d.astype(np.int32)
     for box3d in boxes3d:  # box3d is (8,2)
         for k in range(0, 4):
@@ -453,7 +457,7 @@ def draw_boxes3d_on_img(boxes3d, img, ax, color = (255, 0, 0), thickness = 1, re
         ax.imshow(img)
 
 
-def draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, ax, color = (255, 0, 0), thickness = 1, render = True):
+def draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, ax, color = (255, 0, 0), thickness = 2, render = True):
     for box3d_bev in boxes3d_bev:  # boxes3d_bev is (8,3)
         box3d_bev_centroid = np.zeros(3)
         box3d_bev_head = np.zeros(3)
@@ -603,11 +607,15 @@ if __name__ == '__main__':
     write_frustum_pcd = False
     draw_img = False
 
-    run_mode = 4  # 0: kitti, 1: mule VLP32, 2: nuscenes, 3: white-2x, 4: kitti pseudo-lidar
+    # 0: kitti, 1: mule VLP32, 2: nuscenes, 3: white-2x, 4: kitti pseudo-lidar, 5: sunny pseudo-lidar
+    run_mode = 5
     if run_mode == 0:  # kitti
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
-        INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'kitti')
-        SAMPLES = ['001960', '000851', '000006', '000003']
+        #INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'kitti')
+        #SAMPLES = ['001960', '000851', '000006', '000003']
+        INPUT_DIR = '/media/jhuang/14e3e381-f8fe-43ea-b8bb-2e21cfe226dd/home/jhuang/U16/KITTI/object/testing'
+        allfiles = os.listdir(os.path.join(INPUT_DIR, 'pseudo-lidar_velodyne'))
+        SAMPLES = [os.path.splitext(f)[0] for f in allfiles]
         lidar_format = 'kitti'
     elif run_mode == 1:  # mule
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
@@ -632,17 +640,36 @@ if __name__ == '__main__':
         INPUT_DIR = os.path.join(ROOT_DIR, 'dataset', 'KITTI', 'object', 'training') # pseudo-lidar
         SAMPLES = ['007319', '007405', '007410', '000010']
         lidar_format = 'kitti'
+    elif run_mode == 5:  # sunny pseudo-lidar
+        g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
+        INPUT_DIR = '/media/jhuang/14e3e381-f8fe-43ea-b8bb-2e21cfe226dd/home/jhuang/U16/sunny_dataset'
+        allfiles = os.listdir(os.path.join(INPUT_DIR, 'left-image-half-size'))
+        allfiles = [f for f in allfiles if f.endswith(".png") or f.endswith(".jpg")]
+        SAMPLES = [os.path.splitext(f)[0] for f in allfiles]
+        random.shuffle(SAMPLES)
+        lidar_format = 'kitti'
 
     type_whitelist = g_type2onehotclass.keys()  # ['Car', 'Pedestrian', 'Cyclist', ...]
     batch_size = BATCH_SIZE
     sess, ops = get_session_and_ops(batch_size=batch_size, num_point=NUM_POINT)
 
+    fig = plt.figure(constrained_layout=True, figsize=(16, 12))
+    gs = gridspec.GridSpec(2, 2)
+    ax_2d = fig.add_subplot(gs[0, 0])
+    ax_3d = fig.add_subplot(gs[1, 0])
+    ax_bev = fig.add_subplot(gs[:, -1])
+    # _, ax = plt.subplots(1, 3)
+
     for SAMPLE in SAMPLES:
         if run_mode == 0:
-            DET_FILE = os.path.join(INPUT_DIR, "det_{:s}.txt".format(SAMPLE))
-            IMG_FILE = os.path.join(INPUT_DIR, "{:s}.png".format(SAMPLE))
-            LIDAR_FILE = os.path.join(INPUT_DIR, "{:s}.bin".format(SAMPLE))
-            CALIB_FILE = os.path.join(INPUT_DIR, "calib_{:s}.txt".format(SAMPLE))
+            #DET_FILE = os.path.join(INPUT_DIR, "det_{:s}.txt".format(SAMPLE))
+            #IMG_FILE = os.path.join(INPUT_DIR, "{:s}.png".format(SAMPLE))
+            #LIDAR_FILE = os.path.join(INPUT_DIR, "{:s}.bin".format(SAMPLE))
+            #CALIB_FILE = os.path.join(INPUT_DIR, "calib_{:s}.txt".format(SAMPLE))
+            DET_FILE = os.path.join(INPUT_DIR, 'detections', "{:s}.txt".format(SAMPLE))
+            IMG_FILE = os.path.join(INPUT_DIR, "image_2", "{:s}.png".format(SAMPLE))
+            LIDAR_FILE = os.path.join(INPUT_DIR, "pseudo-lidar_velodyne", "{:s}.bin".format(SAMPLE))
+            CALIB_FILE = os.path.join(INPUT_DIR, "calib", "{:s}.txt".format(SAMPLE))
         elif run_mode == 1:
             DET_FILE = os.path.join(INPUT_DIR, "{:s}.txt".format(SAMPLE))
             IMG_FILE = os.path.join(INPUT_DIR, "{:s}.png".format(SAMPLE))
@@ -660,16 +687,27 @@ if __name__ == '__main__':
             IMG_FILE = os.path.join(INPUT_DIR, "image_2", "{:s}.png".format(SAMPLE))
             LIDAR_FILE = os.path.join(INPUT_DIR, "velodyne", "{:s}.bin".format(SAMPLE))
             CALIB_FILE = os.path.join(INPUT_DIR, "calib", "{:s}.txt".format(SAMPLE))
+        elif run_mode == 5:
+            DET_FILE = os.path.join(INPUT_DIR, "detections", "{:s}.txt".format(SAMPLE))
+            IMG_FILE = os.path.join(INPUT_DIR, "left-image-half-size", "{:s}.jpg".format(SAMPLE))
+            LIDAR_FILE = os.path.join(INPUT_DIR, "pseudo-lidar_velodyne", "{:s}.bin".format(SAMPLE))
+            CALIB_FILE = os.path.join(INPUT_DIR, "calib.txt")
 
+        print("Processing {}".format(SAMPLE))
         t0 = time.time()  # start time
-        _, ax = plt.subplots(1, 3)
 
-        batch_data, batch_rot_angle, _, batch_one_hot_vec, calib, img, img_bev = \
-            extract_frustum_data_rgb_detection(DET_FILE, IMG_FILE, LIDAR_FILE, CALIB_FILE, ax[0],
+        has_valid_dets, batch_data, batch_rot_angle, _, batch_one_hot_vec, calib, img, img_bev = \
+            extract_frustum_data_rgb_detection(DET_FILE, IMG_FILE, LIDAR_FILE, CALIB_FILE, ax_2d,
                                                type_whitelist=type_whitelist,
                                                write_frustum_pcd=write_frustum_pcd,
                                                lidar_format=lidar_format)
-        run_inference(sess, ops, batch_data, batch_rot_angle, batch_one_hot_vec, calib, img, img_bev, ax[1], ax[2])
+        if has_valid_dets:
+            run_inference(sess, ops, batch_data, batch_rot_angle, batch_one_hot_vec, calib, img, img_bev, ax_3d, ax_bev)
+        else:
+            continue # skip sample with no detections
         t1 = time.time()  # end time
         print("time={:.3f}".format(t1 - t0))
-        plt.show()
+        #plt.show()
+        plt.draw()
+        plt.waitforbuttonpress(0) # press any key to continue
+
