@@ -342,6 +342,7 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
                                    type_list, frustum_angle_list, prob_list, white_list=type_whitelist)
     for i in range(bsize):
         ps, rotangle, prob, onehotvec = frustum_feeder[i]
+        #print(ps[np.argmin(ps[:,2])])
         batch_one_hot_vec[i] = onehotvec
         batch_data[i, ...] = ps[:, 0:NUM_CHANNEL]
         batch_rot_angle[i] = rotangle
@@ -591,7 +592,8 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_one_hot_vec, cal
                                                                   batch_sclass_pred[pick],
                                                                   batch_sres_pred[pick],
                                                                   batch_rot_angle[pick])
-        # print("center={:.1f}, {:.1f}, {:.1f}, l/w/h={:.1f}, {:.1f}, {:.1f}, ry={:.2f}".format(tx, ty, tz, l, w, h, ry))
+
+        #print("center={:.1f}, {:.1f}, {:.1f}, l/w/h={:.1f}, {:.1f}, {:.1f}, ry={:.2f}".format(tx, ty, tz, l, w, h, ry))
         # compute_projected_box3d returns (8,2)
         box3d, box3d_bev = utils.compute_projected_box3d(h, w, l, tx, ty, tz, ry, calib.P)
         boxes3d = np.append(boxes3d, box3d[None, :], axis=0)
@@ -605,7 +607,6 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_one_hot_vec, cal
 
 if __name__ == '__main__':
     write_frustum_pcd = False
-    draw_img = False
 
     # 0: kitti, 1: mule VLP32, 2: nuscenes, 3: white-2x, 4: kitti pseudo-lidar, 5: sunny pseudo-lidar
     run_mode = 5
@@ -642,9 +643,9 @@ if __name__ == '__main__':
         lidar_format = 'kitti'
     elif run_mode == 5:  # sunny pseudo-lidar
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
-        INPUT_DIR = '/media/jhuang/14e3e381-f8fe-43ea-b8bb-2e21cfe226dd/home/jhuang/U16/sunny_dataset'
-        allfiles = os.listdir(os.path.join(INPUT_DIR, 'left-image-half-size'))
-        allfiles = [f for f in allfiles if f.endswith(".png") or f.endswith(".jpg")]
+        #INPUT_DIR = '/media/jhuang/14e3e381-f8fe-43ea-b8bb-2e21cfe226dd/home/jhuang/U16/sunny_dataset'
+        INPUT_DIR = '/home/jhuang/Downloads/apollo_test'
+        allfiles = os.listdir(os.path.join(INPUT_DIR, 'pseudo-lidar_velodyne'))
         SAMPLES = [os.path.splitext(f)[0] for f in allfiles]
         random.shuffle(SAMPLES)
         lidar_format = 'kitti'
@@ -689,7 +690,8 @@ if __name__ == '__main__':
             CALIB_FILE = os.path.join(INPUT_DIR, "calib", "{:s}.txt".format(SAMPLE))
         elif run_mode == 5:
             DET_FILE = os.path.join(INPUT_DIR, "detections", "{:s}.txt".format(SAMPLE))
-            IMG_FILE = os.path.join(INPUT_DIR, "left-image-half-size", "{:s}.jpg".format(SAMPLE))
+            #IMG_FILE = os.path.join(INPUT_DIR, "left-image-half-size", "{:s}.jpg".format(SAMPLE))
+            IMG_FILE = os.path.join(INPUT_DIR, "resized_left", "{:s}.jpg".format(SAMPLE))
             LIDAR_FILE = os.path.join(INPUT_DIR, "pseudo-lidar_velodyne", "{:s}.bin".format(SAMPLE))
             CALIB_FILE = os.path.join(INPUT_DIR, "calib.txt")
 
