@@ -352,7 +352,50 @@ vector<double> getThresholds(vector<double> &v, double n_groundtruth){
   sort(v.begin(), v.end(), greater<double>());
 
   // get scores for linearly spaced recall
-  double current_recall = 0;
+  double target_recall = 0;
+
+  /* 
+   * (jhuang) 
+   * 
+   * v.size()==num of TP detections
+   * v is ordered from highest conf to lowest
+   * n_groundtruth==num of gt
+   * 
+   * As we move from highest-conf v to lowest one by one,
+   * recall increases from 0 to v_size / n_gt.
+   * We try to find v which gives recall closes to each discretized recall sample.
+   * There are a total of 41 recall samples, 0.025 apart, from 0 to 1.
+   * At position i, 
+   * l_recall == current recall == (i+1) / n_gt
+   * r_recall == (i+2) / n_gt == recall including next element
+   * We check if the next element can get us even closer to target recall.
+   * If we can, we simply ignore current v and move to next one.
+   * If we can't, then current v gives the closest matching recall.
+   * We add it to result vector (t).
+   * 
+   * After this function returns, we revisit each threshold in t, and 
+   * compute the corresponding Precision. Together with the recall value,
+   * we can plot the PR curve.
+   * 
+   * However, the above logic fails if num_gt<40 because each step in v
+   * moves recall by more than 1/40. We process in special mode here.
+   * 
+   * Ref: https://medium.com/@jonathan_hui/map-mean-average-precision-for-object-detection-45c121a31173 
+   */
+   
+  // Special mode (n_groundtruth < N_SAMPLE_PTS-1)
+  if (n_groundtruth<N_SAMPLE_PTS-1) {
+    for(int32_t i=0; i<v.size(); i++) {
+      double recall = (double)(i+1)/n_groundtruth;
+      while(target_recall<recall) {
+        t.push_back(v[i]);
+        target_recall += 1.0/(N_SAMPLE_PTS-1.0);
+      }
+    }
+    return t;
+  }
+  
+  // Regular mode (n_groundtruth > N_SAMPLE_PTS-1)
   for(int32_t i=0; i<v.size(); i++){
 
     // check if right-hand-side recall with respect to current recall is close than left-hand-side one
@@ -364,7 +407,7 @@ vector<double> getThresholds(vector<double> &v, double n_groundtruth){
     else
       r_recall = l_recall;
 
-    if( (r_recall-current_recall) < (current_recall-l_recall) && i<(v.size()-1))
+    if( (r_recall-target_recall) < (target_recall-l_recall) && i<(v.size()-1))
       continue;
 
     // left recall is the best approximation, so use this and goto next recall step for approximation
@@ -372,13 +415,14 @@ vector<double> getThresholds(vector<double> &v, double n_groundtruth){
 
     // the next recall step was reached
     t.push_back(v[i]);
-    current_recall += 1.0/(N_SAMPLE_PTS-1.0);
+    
+    target_recall += 1.0/(N_SAMPLE_PTS-1.0);
   }
   return t;
 }
 
 void cleanData(CLASSES current_class, const vector<tGroundtruth> &gt, const vector<tDetection> &det, vector<int32_t> &ignored_gt, vector<tGroundtruth> &dc, vector<int32_t> &ignored_det, int32_t &n_gt, DIFFICULTY difficulty){
-
+  
   // extract ground truth bounding boxes for current evaluation class
   for(int32_t i=0;i<gt.size(); i++){
 
@@ -498,6 +542,7 @@ tPrData computeStatistics(CLASSES current_class, const vector<tGroundtruth> &gt,
       if(ignored_threshold[j])
         continue;
 
+      
       // find the maximum score for the candidates and get idx of respective detection
       double overlap = boxoverlap(det[j], gt[i], -1);
 
@@ -532,8 +577,9 @@ tPrData computeStatistics(CLASSES current_class, const vector<tGroundtruth> &gt,
     }
 
     // only evaluate valid ground truth <=> detection assignments (considering difficulty level)
-    else if(valid_detection!=NO_DETECTION && (ignored_gt[i]==1 || ignored_det[det_idx]==1))
+    else if(valid_detection!=NO_DETECTION && (ignored_gt[i]==1 || ignored_det[det_idx]==1)) {
       assigned_detection[det_idx] = true;
+    }
 
     // found a valid true positive
     else if(valid_detection!=NO_DETECTION){
@@ -624,6 +670,12 @@ bool eval_class (FILE *fp_det, FILE *fp_ori, CLASSES current_class,
         DIFFICULTY difficulty, METRIC metric) {
     assert(groundtruth.size() == detections.size());
 
+  //bool debug = (current_class==1 && difficulty==1);
+  bool debug = false;
+  if (debug) {
+    cout << CLASS_NAMES[current_class] << " " << difficulty << endl;
+  }
+  
   // init
   int32_t n_gt=0;                                     // total no. of gt (denominator of recall)
   vector<double> v, thresholds;                       // detection scores, evaluated for recall discretization
@@ -645,14 +697,16 @@ bool eval_class (FILE *fp_det, FILE *fp_ori, CLASSES current_class,
 
     // compute statistics to get recall values
     tPrData pr_tmp = tPrData();
-    pr_tmp = computeStatistics(current_class, groundtruth[i], detections[i], dc, i_gt, i_det, false, boxoverlap, metric);
+    pr_tmp = computeStatistics(current_class, groundtruth[i], detections[i], dc, i_gt, i_det, false, boxoverlap, metric, false, 0, debug);
 
     // add detection scores to vector over all images
-    for(int32_t j=0; j<pr_tmp.v.size(); j++)
+    for(int32_t j=0; j<pr_tmp.v.size(); j++) {
       v.push_back(pr_tmp.v[j]);
+    }
   }
-  //printf("n_gt=%d\n", n_gt);
+  
   // get scores that must be evaluated for recall discretization
+  if (debug) printf("n_gt=%d\n", n_gt);
   thresholds = getThresholds(v, n_gt);
 
   // compute TP,FP,FN for relevant scores
@@ -675,6 +729,8 @@ bool eval_class (FILE *fp_det, FILE *fp_ori, CLASSES current_class,
     }
   }
 
+  if (debug) printf("--\n");
+  
   // compute recall, precision and AOS
   vector<double> recall;
   precision.assign(N_SAMPLE_PTS, 0);
@@ -685,6 +741,10 @@ bool eval_class (FILE *fp_det, FILE *fp_ori, CLASSES current_class,
     r = pr[i].tp/(double)(pr[i].tp + pr[i].fn);
     recall.push_back(r);
     precision[i] = pr[i].tp/(double)(pr[i].tp + pr[i].fp);
+    if (debug) {
+      printf("[%.2f] tp=%d, fp=%d, fn=%d, r=%.2f, p=%.2f\n", 
+      thresholds[i], pr[i].tp, pr[i].fp, pr[i].fn, r, precision[i]);
+    }
     if(compute_aos)
       aos[i] = pr[i].similarity/(double)(pr[i].tp + pr[i].fp);
   }
@@ -715,7 +775,7 @@ void saveAndPlotPlots(string dir_name,string file_name,string obj_type,vector<do
   for (int v = 0; v < 3; ++v)
       for (int i = 0; i < vals[v].size(); i = i + 4)
           sum[v] += vals[v][i];
-  printf("%25s AP: %6.2f %6.2f %6.2f\n", file_name.c_str(), sum[0] / 11 * 100, sum[1] / 11 * 100, sum[2] / 11 * 100);
+  printf("%22s AP: %6.2f %6.2f %6.2f\n", file_name.c_str(), sum[0] / 11 * 100, sum[1] / 11 * 100, sum[2] / 11 * 100);
 
 
   // create png + eps
