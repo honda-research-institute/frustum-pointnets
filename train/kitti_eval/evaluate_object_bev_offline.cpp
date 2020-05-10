@@ -312,6 +312,25 @@ inline double groundBoxOverlap(tDetection d, tGroundtruth g, int32_t criterion =
     return o;
 }
 
+
+// measure overlap between bird's eye view bounding boxes, parametrized by (ry, l, w, tx, tz)
+inline double groundPosition(tDetection d, tGroundtruth g, int32_t criterion = -1) {
+    using namespace boost::geometry;
+    Polygon gp = toPolygon(g);
+    Polygon dp = toPolygon(d);
+    
+    double dx = d.t1-g.t1;
+    double dy = d.t2-g.t2;
+    double dz = d.t3-g.t3;
+    
+    static double normalizer = 6.0; // meter
+    double d_pos = 1 - sqrt(dx*dx+dy*dy+dz*dz) / normalizer;
+    if (d_pos<0)
+      d_pos = 0.0;
+
+    return d_pos;
+}
+
 // measure overlap between 3D bounding boxes, parametrized by (ry, h, w, l, tx, ty, tz)
 inline double box3DOverlap(tDetection d, tGroundtruth g, int32_t criterion = -1) {
     using namespace boost::geometry;
@@ -775,7 +794,7 @@ void saveAndPlotPlots(string dir_name,string file_name,string obj_type,vector<do
   for (int v = 0; v < 3; ++v)
       for (int i = 0; i < vals[v].size(); i = i + 4)
           sum[v] += vals[v][i];
-  printf("%22s AP: %6.2f %6.2f %6.2f\n", file_name.c_str(), sum[0] / 11 * 100, sum[1] / 11 * 100, sum[2] / 11 * 100);
+  printf("%30s AP: %6.2f %6.2f %6.2f\n", file_name.c_str(), sum[0] / 11 * 100, sum[1] / 11 * 100, sum[2] / 11 * 100);
 
 
   // create png + eps
@@ -903,13 +922,14 @@ bool eval(string gt_dir, string result_dir, string report_dir){
       return false;
     }
   }
-  cout << "  done parsing files\n";
+  cout << "---\ndone parsing files\n\n";
 
 
   // holds pointers for result files
   FILE *fp_det=0, *fp_ori=0;
 
   // eval image 2D bounding boxes
+  printf("Starting 2D bounding box eval.\n");
   cout << "=====\n";
   for (int c = 0; c < NUM_CLASS; c++) {
     CLASSES cls = (CLASSES)c;
@@ -932,21 +952,23 @@ bool eval(string gt_dir, string result_dir, string report_dir){
     }
   }
   cout << "=====\n";
-  printf("Finished 2D bounding box eval.\n");
+  printf("Finished 2D bounding box eval.\n\n");
+  
   // don't evaluate AOS for birdview boxes and 3D boxes
   compute_aos = false;
-  return true;
 
-  // eval bird's eye view bounding boxes
+  // eval bird's eye view position-only
+  printf("Starting BEV eval.\n");
+  cout << "=====\n";
   for (int c = 0; c < NUM_CLASS; c++) {
     CLASSES cls = (CLASSES)c;
     if (eval_ground[c]) {
       fp_det = fopen((report_dir + "/stats_" + CLASS_NAMES[c] + "_detection_ground.txt").c_str(), "w");
       vector<double> precision[3], aos[3];
-      printf("Going to eval ground for class: %s\n", CLASS_NAMES[c].c_str());
-      if(   !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundBoxOverlap, precision[0], aos[0], EASY, GROUND)
-         || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundBoxOverlap, precision[1], aos[1], MODERATE, GROUND)
-         || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundBoxOverlap, precision[2], aos[2], HARD, GROUND)) {
+      //printf("Going to eval ground for class: %s\n", CLASS_NAMES[c].c_str());
+      if(   !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundPosition, precision[0], aos[0], EASY, GROUND)
+         || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundPosition, precision[1], aos[1], MODERATE, GROUND)
+         || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundPosition, precision[2], aos[2], HARD, GROUND)) {
         printf("%s evaluation failed.", CLASS_NAMES[c].c_str());
         return false;
       }
@@ -954,26 +976,8 @@ bool eval(string gt_dir, string result_dir, string report_dir){
       saveAndPlotPlots(plot_dir, CLASS_NAMES[c] + "_detection_ground", CLASS_NAMES[c], precision, 0);
     }
   }
-  printf("Finished Birdeye eval.\n");
-
-  // eval 3D bounding boxes
-  for (int c = 0; c < NUM_CLASS; c++) {
-    CLASSES cls = (CLASSES)c;
-    if (eval_3d[c]) {
-      fp_det = fopen((report_dir + "/stats_" + CLASS_NAMES[c] + "_detection_3d.txt").c_str(), "w");
-      vector<double> precision[3], aos[3];
-      printf("Going to eval 3D box for class: %s\n", CLASS_NAMES[c].c_str());
-      if(   !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, box3DOverlap, precision[0], aos[0], EASY, BOX3D)
-         || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, box3DOverlap, precision[1], aos[1], MODERATE, BOX3D)
-         || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, box3DOverlap, precision[2], aos[2], HARD, BOX3D)) {
-        printf("%s evaluation failed.", CLASS_NAMES[c].c_str());
-        return false;
-      }
-      fclose(fp_det);
-      saveAndPlotPlots(plot_dir, CLASS_NAMES[c] + "_detection_3d", CLASS_NAMES[c], precision, 0);
-    }
-  }
-  printf("Finished 3D bounding box eval.\n");
+  cout << "=====\n";
+  printf("Finished BEV eval.\n\n");
 
   // success
   return true;
