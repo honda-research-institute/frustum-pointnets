@@ -67,6 +67,10 @@ for i in range(NUM_SIZE_CLUSTER):
 
 img_bev_w, img_bev_h = 700, 1400
 img_bev_resolution = 0.05
+img_bev_w, img_bev_h = 600, 800
+img_bev_resolution = 0.08
+img_bev_w, img_bev_h = 600, 800
+img_bev_resolution = 0.1
 SHOW_BOX3D = True
 SHOW_BOX_BEV = True
 
@@ -91,7 +95,7 @@ def write2pcd(scan, pcd_file):
 
 
 ''' det file format: type_str conf xmin ymin xmax ymax '''
-def read_det_file(det_filename):
+def read_det_file(det_filename, min_conf=0.2):
     ''' Parse lines in 2D detection output files '''
     type_list = []
     prob_list = []
@@ -99,6 +103,8 @@ def read_det_file(det_filename):
     for line in open(det_filename, 'r'):
         d = line.rstrip().split(" ")
         category, prob = d[0], float(d[1])
+        if prob<min_conf:
+            continue
         # category=='Pedestrian', 'Car', 'Cyclist', ...
         type_list.append(category)
         prob_list.append(prob)
@@ -252,7 +258,7 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
 
     # Foreach 2D BBox in detection file, crop corresponding frustum_pc
     for det_idx in range(len(det_type_list)):
-        print('det idx: %d/%d' % (det_idx + 1, len(det_type_list)))
+        #print('det idx: %d/%d' % (det_idx + 1, len(det_type_list)))
         if det_idx == 0:  # first det, load all input files
             calib = get_kitti_calibration(calib_filename)  # 3 by 4 matrix
 
@@ -272,6 +278,7 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
             pc_rect[:, 3] = pc_velo[:, 3]
 
             img_bev = draw_BEV_lidar(pc_rect, render=False)
+            #img_bev = draw_BEV_lidar(None, render=False)
 
             if write_frustum_pcd:
                 write2pcd(pc_velo, lidar_filename.replace('.bin', '_full.pcd'))
@@ -333,7 +340,10 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
             pickle.dump(calib_list, fp)
 
     bsize = len(input_list)
-    assert bsize <= BATCH_SIZE, 'num detections must be <= {}'.format(BATCH_SIZE)
+    if bsize > BATCH_SIZE:
+        print('num detections > {}'.format(BATCH_SIZE))
+        #assert bsize <= BATCH_SIZE, 'num detections must be <= {}'.format(BATCH_SIZE)
+        return False, None, None, None, None, calib, img, img_bev
     batch_data = np.zeros((bsize, NUM_POINT, NUM_CHANNEL))
     batch_rot_angle = np.zeros((bsize,))
     batch_prob = np.zeros((bsize,))
@@ -416,10 +426,12 @@ def rect2bev_img(pt_rect):
 # pc_rect = (n,4) => x, y, z, intensity
 def draw_BEV_lidar(pc_rect, render = False):
     img_bev = np.zeros([img_bev_h, img_bev_w, 3], dtype=np.uint8)
-    for pt_rect in pc_rect:
-        [u, v] = rect2bev_img(pt_rect)
-        if 0 <= u < img_bev_w and 0 <= v < img_bev_h:
-            img_bev[v, u] = [255, 255, 255]
+    if pc_rect is not None:
+        downsample = int(pc_rect.shape[0] / 100000)
+        for pt_rect in pc_rect[::downsample, :]:
+            [u, v] = rect2bev_img(pt_rect)
+            if 0 <= u < img_bev_w and 0 <= v < img_bev_h:
+                img_bev[v, u] = [255, 255, 255]
     if render:
         # Image.fromarray(img1).show()
         plt.imshow(img_bev)
@@ -432,11 +444,11 @@ def draw_BEV_lidar(pc_rect, render = False):
 
 
 # boxes2d = (n,4) => xmin, ymin, xmax, ymax
-def draw_boxes2d_on_img(boxes2d, img, ax):
+def draw_boxes2d_on_img(boxes2d, img, ax, thickness = 2):
     img1 = np.copy(img)  # for 2d bbox
     for box2d in boxes2d:
         cv2.rectangle(img1, (int(box2d[0]), int(box2d[1])),
-                      (int(box2d[2]), int(box2d[3])), (0, 255, 0), 2)
+                      (int(box2d[2]), int(box2d[3])), (0, 255, 0), thickness)
     ax.imshow(img1)
 
 
@@ -551,7 +563,9 @@ def inference(sess, ops, pc, one_hot_vec, batch_size):
            size_cls, size_res, valid  # , scores
 
 
-def run_inference(sess, ops, batch_data, batch_rot_angle, batch_one_hot_vec, calib, img, img_bev, ax1, ax2):
+def run_inference(sess, ops, batch_data, batch_rot_angle, batch_one_hot_vec, calib, img, img_bev, ax1, ax2,
+                  verbose=False):
+
     batch_size = BATCH_SIZE
     batch_data_to_feed = np.zeros((batch_size, NUM_POINT, NUM_CHANNEL))
     batch_one_hot_to_feed = np.zeros((batch_size, 3))
@@ -560,12 +574,14 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_one_hot_vec, cal
     batch_one_hot_to_feed[0:cur_batch_size, :] = batch_one_hot_vec
 
     # Run one batch inference
+    t0 = time.time()
     batch_output, batch_center_pred, \
     batch_hclass_pred, batch_hres_pred, \
     batch_sclass_pred, batch_sres_pred, \
     batch_valid = \
         inference(sess, ops, batch_data_to_feed,
                   batch_one_hot_to_feed, batch_size=batch_size)
+    print("inference time={:.3f}".format(time.time() - t0))
 
     # print("center=")
     # print(batch_center_pred[:cur_batch_size, :])
@@ -581,11 +597,12 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_one_hot_vec, cal
     boxes3d = np.zeros((0, 8, 2))
     boxes3d_bev = np.zeros((0, 8, 3))
     for pick in range(cur_batch_size):
-        if not batch_valid[pick]:
-            print('det %d: not valid' % (pick + 1))
-            continue
-        else:
-            print('det %d: valid' % (pick + 1))
+        if verbose:
+            if not batch_valid[pick]:
+                print('det %d: not valid' % (pick + 1))
+                continue
+            else:
+                print('det %d: valid' % (pick + 1))
         h, w, l, tx, ty, tz, ry = from_prediction_to_label_format(batch_center_pred[pick],
                                                                   batch_hclass_pred[pick],
                                                                   batch_hres_pred[pick],
@@ -608,15 +625,17 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_one_hot_vec, cal
 if __name__ == '__main__':
     write_frustum_pcd = False
 
-    # 0: kitti, 1: mule VLP32, 2: nuscenes, 3: white-2x, 4: kitti pseudo-lidar, 5: sunny pseudo-lidar
-    run_mode = 5
+    # 0: kitti, 1: mule VLP32, 2: nuscenes, 3: white-2x, 4: kitti pseudo-lidar,
+    # 5: sunny pseudo-lidar, 6: apollo pseudo-lidar, 7: CCSAD pseudo-lidar
+    run_mode = 0
     if run_mode == 0:  # kitti
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
         #INPUT_DIR = os.path.join(ROOT_DIR, 'jhuang', 'kitti')
         #SAMPLES = ['001960', '000851', '000006', '000003']
         INPUT_DIR = '/media/jhuang/14e3e381-f8fe-43ea-b8bb-2e21cfe226dd/home/jhuang/U16/KITTI/object/testing'
-        allfiles = os.listdir(os.path.join(INPUT_DIR, 'pseudo-lidar_velodyne'))
+        allfiles = os.listdir(os.path.join(INPUT_DIR, 'detections_2'))
         SAMPLES = [os.path.splitext(f)[0] for f in allfiles]
+        #SAMPLES = ['000205']
         lidar_format = 'kitti'
     elif run_mode == 1:  # mule
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
@@ -639,12 +658,27 @@ if __name__ == '__main__':
     elif run_mode == 4:  # kitti pseudo-lidar
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
         INPUT_DIR = os.path.join(ROOT_DIR, 'dataset', 'KITTI', 'object', 'training') # pseudo-lidar
-        SAMPLES = ['007319', '007405', '007410', '000010']
+        allfiles = os.listdir(os.path.join(INPUT_DIR, 'detections_2'))
+        SAMPLES = [os.path.splitext(f)[0] for f in allfiles]
         lidar_format = 'kitti'
     elif run_mode == 5:  # sunny pseudo-lidar
         g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
-        #INPUT_DIR = '/media/jhuang/14e3e381-f8fe-43ea-b8bb-2e21cfe226dd/home/jhuang/U16/sunny_dataset'
+        INPUT_DIR = '/media/jhuang/14e3e381-f8fe-43ea-b8bb-2e21cfe226dd/home/jhuang/U16/sunny_dataset'
+        allfiles = os.listdir(os.path.join(INPUT_DIR, 'pseudo-lidar_velodyne'))
+        SAMPLES = [os.path.splitext(f)[0] for f in allfiles]
+        random.shuffle(SAMPLES)
+        lidar_format = 'kitti'
+    elif run_mode == 6:  # apollo pseudo-lidar
+        g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
         INPUT_DIR = '/home/jhuang/Downloads/apollo_test'
+        allfiles = os.listdir(os.path.join(INPUT_DIR, 'pseudo-lidar_velodyne'))
+        SAMPLES = [os.path.splitext(f)[0] for f in allfiles]
+        #SAMPLES = ['180116_042603602']
+        random.shuffle(SAMPLES)
+        lidar_format = 'kitti'
+    elif run_mode == 7:  # CCSAD pseudo-lidar
+        g_type2onehotclass = {'Car': 0, 'Pedestrian': 1, 'Cyclist': 2}
+        INPUT_DIR = '/home/jhuang/Downloads/CCSAD/1'
         allfiles = os.listdir(os.path.join(INPUT_DIR, 'pseudo-lidar_velodyne'))
         SAMPLES = [os.path.splitext(f)[0] for f in allfiles]
         random.shuffle(SAMPLES)
@@ -654,8 +688,9 @@ if __name__ == '__main__':
     batch_size = BATCH_SIZE
     sess, ops = get_session_and_ops(batch_size=batch_size, num_point=NUM_POINT)
 
-    fig = plt.figure(constrained_layout=True, figsize=(16, 12))
+    fig = plt.figure(constrained_layout=True, figsize=(13, 12))
     gs = gridspec.GridSpec(2, 2)
+    gs.update(wspace=0.1, hspace=0.05)  # set the spacing between axes
     ax_2d = fig.add_subplot(gs[0, 0])
     ax_3d = fig.add_subplot(gs[1, 0])
     ax_bev = fig.add_subplot(gs[:, -1])
@@ -663,11 +698,8 @@ if __name__ == '__main__':
 
     for SAMPLE in SAMPLES:
         if run_mode == 0:
-            #DET_FILE = os.path.join(INPUT_DIR, "det_{:s}.txt".format(SAMPLE))
-            #IMG_FILE = os.path.join(INPUT_DIR, "{:s}.png".format(SAMPLE))
-            #LIDAR_FILE = os.path.join(INPUT_DIR, "{:s}.bin".format(SAMPLE))
-            #CALIB_FILE = os.path.join(INPUT_DIR, "calib_{:s}.txt".format(SAMPLE))
-            DET_FILE = os.path.join(INPUT_DIR, 'detections', "{:s}.txt".format(SAMPLE))
+            DET_FILE = os.path.join(INPUT_DIR, 'detections_2', "{:s}.txt".format(SAMPLE))
+            #IMG_FILE = os.path.join(INPUT_DIR, "image_2", "{:s}.png".format(SAMPLE))
             IMG_FILE = os.path.join(INPUT_DIR, "image_2", "{:s}.png".format(SAMPLE))
             LIDAR_FILE = os.path.join(INPUT_DIR, "pseudo-lidar_velodyne", "{:s}.bin".format(SAMPLE))
             CALIB_FILE = os.path.join(INPUT_DIR, "calib", "{:s}.txt".format(SAMPLE))
@@ -684,32 +716,45 @@ if __name__ == '__main__':
             IMG_FILE = os.path.join(INPUT_DIR, "{:s}.png".format(SAMPLE))
             LIDAR_FILE = os.path.join(INPUT_DIR, "{:s}.bin".format(SAMPLE))
         elif run_mode == 4:
-            DET_FILE = os.path.join(INPUT_DIR, "det_2", "{:s}.txt".format(SAMPLE))
+            DET_FILE = os.path.join(INPUT_DIR, "detections_2", "{:s}.txt".format(SAMPLE))
             IMG_FILE = os.path.join(INPUT_DIR, "image_2", "{:s}.png".format(SAMPLE))
             LIDAR_FILE = os.path.join(INPUT_DIR, "velodyne", "{:s}.bin".format(SAMPLE))
             CALIB_FILE = os.path.join(INPUT_DIR, "calib", "{:s}.txt".format(SAMPLE))
         elif run_mode == 5:
-            DET_FILE = os.path.join(INPUT_DIR, "detections", "{:s}.txt".format(SAMPLE))
-            #IMG_FILE = os.path.join(INPUT_DIR, "left-image-half-size", "{:s}.jpg".format(SAMPLE))
+            DET_FILE = os.path.join(INPUT_DIR, "detections_left", "{:s}.txt".format(SAMPLE))
+            IMG_FILE = os.path.join(INPUT_DIR, "left-image-half-size", "{:s}.jpg".format(SAMPLE))
+            LIDAR_FILE = os.path.join(INPUT_DIR, "pseudo-lidar_velodyne", "{:s}.bin".format(SAMPLE))
+            CALIB_FILE = os.path.join(INPUT_DIR, "calib.txt")
+        elif run_mode == 6:
+            DET_FILE = os.path.join(INPUT_DIR, "detections_half_5", "{:s}.txt".format(SAMPLE))
             IMG_FILE = os.path.join(INPUT_DIR, "resized_left", "{:s}.jpg".format(SAMPLE))
+            LIDAR_FILE = os.path.join(INPUT_DIR, "pseudo-lidar_velodyne", "{:s}.bin".format(SAMPLE))
+            CALIB_FILE = os.path.join(INPUT_DIR, "calib_half.txt")
+        elif run_mode == 7:
+            DET_FILE = os.path.join(INPUT_DIR, "detections_left", "{:s}.txt".format(SAMPLE))
+            IMG_FILE = os.path.join(INPUT_DIR, "left", "{:s}.png".format(SAMPLE))
             LIDAR_FILE = os.path.join(INPUT_DIR, "pseudo-lidar_velodyne", "{:s}.bin".format(SAMPLE))
             CALIB_FILE = os.path.join(INPUT_DIR, "calib.txt")
 
         print("Processing {}".format(SAMPLE))
         t0 = time.time()  # start time
 
+        t_frustum = time.time()  # start time
         has_valid_dets, batch_data, batch_rot_angle, _, batch_one_hot_vec, calib, img, img_bev = \
             extract_frustum_data_rgb_detection(DET_FILE, IMG_FILE, LIDAR_FILE, CALIB_FILE, ax_2d,
                                                type_whitelist=type_whitelist,
                                                write_frustum_pcd=write_frustum_pcd,
                                                lidar_format=lidar_format)
+        print("extract_frustum time={:.3f}".format(time.time() - t_frustum))
         if has_valid_dets:
             run_inference(sess, ops, batch_data, batch_rot_angle, batch_one_hot_vec, calib, img, img_bev, ax_3d, ax_bev)
         else:
             continue # skip sample with no detections
-        t1 = time.time()  # end time
-        print("time={:.3f}".format(t1 - t0))
+
+        print("total time={:.3f}".format(time.time() - t0))
         #plt.show()
         plt.draw()
+        margin = 0.03
+        plt.subplots_adjust(left=margin, right=1 - margin, top=1 - margin, bottom=margin)
         plt.waitforbuttonpress(0) # press any key to continue
 

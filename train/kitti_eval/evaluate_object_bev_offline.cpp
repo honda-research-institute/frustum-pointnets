@@ -323,7 +323,7 @@ inline double groundPosition(tDetection d, tGroundtruth g, int32_t criterion = -
     double dy = d.t2-g.t2;
     double dz = d.t3-g.t3;
     
-    static double normalizer = 6.0; // meter
+    static double normalizer = 3.0; // meter
     double d_pos = 1 - sqrt(dx*dx+dy*dy+dz*dz) / normalizer;
     if (d_pos<0)
       d_pos = 0.0;
