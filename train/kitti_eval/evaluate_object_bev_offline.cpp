@@ -27,6 +27,8 @@ typedef boost::geometry::model::polygon<boost::geometry::model::d2::point_xy<dou
 using namespace std;
 using boost::format;
 
+#define BEV_POS_MODE 0 // 0: point position mode (check "normalizer") 1: box mode
+
 /*=======================================================================
 STATIC EVALUATION PARAMETERS
 =======================================================================*/
@@ -965,12 +967,21 @@ bool eval(string gt_dir, string result_dir, string report_dir){
     if (eval_ground[c]) {
       fp_det = fopen((report_dir + "/stats_" + CLASS_NAMES[c] + "_detection_ground.txt").c_str(), "w");
       vector<double> precision[3], aos[3];
-      //printf("Going to eval ground for class: %s\n", CLASS_NAMES[c].c_str());
-      if(   !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundPosition, precision[0], aos[0], EASY, GROUND)
-         || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundPosition, precision[1], aos[1], MODERATE, GROUND)
-         || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundPosition, precision[2], aos[2], HARD, GROUND)) {
-        printf("%s evaluation failed.", CLASS_NAMES[c].c_str());
-        return false;
+      if (BEV_POS_MODE) {
+        //printf("Going to eval ground for class: %s\n", CLASS_NAMES[c].c_str());
+        if(   !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundPosition, precision[0], aos[0], EASY, GROUND)
+           || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundPosition, precision[1], aos[1], MODERATE, GROUND)
+           || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundPosition, precision[2], aos[2], HARD, GROUND)) {
+          printf("%s evaluation failed.", CLASS_NAMES[c].c_str());
+          return false;
+        }
+      } else {
+        if(   !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundBoxOverlap, precision[0], aos[0], EASY, GROUND)
+         || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundBoxOverlap, precision[1], aos[1], MODERATE, GROUND)
+         || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, groundBoxOverlap, precision[2], aos[2], HARD, GROUND)) {
+           printf("%s evaluation failed.", CLASS_NAMES[c].c_str());
+          return false;
+        }
       }
       fclose(fp_det);
       saveAndPlotPlots(plot_dir, CLASS_NAMES[c] + "_detection_ground", CLASS_NAMES[c], precision, 0);
