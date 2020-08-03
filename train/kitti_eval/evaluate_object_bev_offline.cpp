@@ -27,7 +27,8 @@ typedef boost::geometry::model::polygon<boost::geometry::model::d2::point_xy<dou
 using namespace std;
 using boost::format;
 
-#define BEV_POS_MODE 0 // 0: point position mode (check "normalizer") 1: box mode
+#define BEV_POS_MODE 1 // 0: point position mode (check "normalizer") 1: box mode
+#define DET_16_ITEMS 1
 
 /*=======================================================================
 STATIC EVALUATION PARAMETERS
@@ -138,6 +139,7 @@ FUNCTIONS TO LOAD DETECTION AND GROUND TRUTH DATA ONCE, SAVE RESULTS
 =======================================================================*/
 vector<int32_t> indices;
 
+#if DET_16_ITEMS
 vector<tDetection> loadDetections(string file_name, bool &compute_aos,
         vector<bool> &eval_image, vector<bool> &eval_ground,
         vector<bool> &eval_3d, bool &success) {
@@ -185,6 +187,49 @@ vector<tDetection> loadDetections(string file_name, bool &compute_aos,
   success = true;
   return detections;
 }
+#else
+vector<tDetection> loadDetections(string file_name, bool &compute_aos,
+        vector<bool> &eval_image, vector<bool> &eval_ground,
+        vector<bool> &eval_3d, bool &success) {
+
+  // holds all detections (ignored detections are indicated by an index vector
+  vector<tDetection> detections;
+  FILE *fp = fopen(file_name.c_str(),"r");
+  if (!fp) {
+    success = false;
+    return detections;
+  }
+  while (!feof(fp)) {
+    tDetection d;
+    double trash;
+    char str[255];
+    if (fscanf(fp, "%s %lf %lf %lf %lf %lf %lf %lf %lf",
+                   str, &d.thresh, &d.box.x1, &d.box.y1, &d.box.x2, &d.box.y2, &d.t1, &d.t2, &d.t3)==9) {
+
+      d.box.type = str;
+      detections.push_back(d);
+
+      // AOS is not evaluated if at least one orientation is invalid
+      compute_aos = false;
+
+      // a class is only evaluated if it is detected at least once
+      for (int c = 0; c < NUM_CLASS; c++) {
+        eval_3d[c] = false;
+        if (!strcasecmp(d.box.type.c_str(), CLASS_NAMES[c].c_str())) {
+          if (!eval_image[c] && d.box.x1 >= 0)
+            eval_image[c] = true;
+            eval_ground[c] = true;
+            
+          break;
+        }
+      }
+    }
+  }
+  fclose(fp);
+  success = true;
+  return detections;
+}
+#endif
 
 vector<tGroundtruth> loadGroundtruth(string file_name,bool &success) {
 
