@@ -53,11 +53,12 @@ const int NUM_CLASS = 3;
 
 // parameters varying per class
 vector<string> CLASS_NAMES;
+vector<string> CLASS_NAMES_CAP;
 // the minimum overlap required for 2D evaluation on the image/ground plane and 3D evaluation
 //const double MIN_OVERLAP[3][3] = {{0.7, 0.5, 0.5}, {0.25, 0.25, 0.25}, {0.25, 0.25, 0.25}};
 //const double MIN_OVERLAP[3][3] = {{0.7, 0.5, 0.5}, {0.5, 0.25, 0.25}, {0.5, 0.25, 0.25}};
-//const double MIN_OVERLAP[3][3] = {{0.7, 0.5, 0.5}, {0.7, 0.5, 0.5}, {0.7, 0.5, 0.5}}; // default
-const double MIN_OVERLAP[3][3] = {{0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}};  // jhuang
+const double MIN_OVERLAP[3][3] = {{0.7, 0.5, 0.5}, {0.7, 0.5, 0.5}, {0.7, 0.5, 0.5}}; // default
+//const double MIN_OVERLAP[3][3] = {{0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}};  // jhuang
 
 // no. of recall steps that should be evaluated (discretized)
 const double N_SAMPLE_PTS = 41;
@@ -68,6 +69,9 @@ void initGlobals () {
   CLASS_NAMES.push_back("car");
   CLASS_NAMES.push_back("pedestrian");
   CLASS_NAMES.push_back("cyclist");
+  CLASS_NAMES_CAP.push_back("Car");
+  CLASS_NAMES_CAP.push_back("Pedestrian");
+  CLASS_NAMES_CAP.push_back("Cyclist");
 }
 
 /*=======================================================================
@@ -149,28 +153,34 @@ vector<tDetection> loadDetections(string file_name, bool &compute_aos,
     tDetection d;
     double trash;
     char str[255];
-    if (fscanf(fp, "%s %lf %lf %lf %lf %lf %lf %lf %lf",
-                   str, &d.thresh, &d.box.x1, &d.box.y1, &d.box.x2, &d.box.y2, &d.t1, &d.t2, &d.t3)==9) {
+    if (fscanf(fp, "%s %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf",
+                   str, &trash, &trash, &d.box.alpha, &d.box.x1, &d.box.y1,
+                   &d.box.x2, &d.box.y2, &d.h, &d.w, &d.l, &d.t1, &d.t2, &d.t3,
+                   &d.ry, &d.thresh)==16) {
 
+      // d.thresh = 1;
       d.box.type = str;
       detections.push_back(d);
 
-      // AOS is not evaluated if at least one orientation is invalid
-      compute_aos = false;
+      // orientation=-10 is invalid, AOS is not evaluated if at least one orientation is invalid
+      if(d.box.alpha == -10)
+        compute_aos = false;
 
       // a class is only evaluated if it is detected at least once
       for (int c = 0; c < NUM_CLASS; c++) {
-        eval_3d[c] = false;
-        if (!strcasecmp(d.box.type.c_str(), CLASS_NAMES[c].c_str())) {
+        if (!strcasecmp(d.box.type.c_str(), CLASS_NAMES[c].c_str()) || !strcasecmp(d.box.type.c_str(), CLASS_NAMES_CAP[c].c_str())) {
           if (!eval_image[c] && d.box.x1 >= 0)
             eval_image[c] = true;
+          if (!eval_ground[c] && d.t1 != -1000 && d.t3 != -1000 && d.w > 0 && d.l > 0)
             eval_ground[c] = true;
-            
+          if (!eval_3d[c] && d.t1 != -1000 && d.t2 != -1000 && d.t3 != -1000 && d.h > 0 && d.w > 0 && d.l > 0) 
+            eval_3d[c] = true;
           break;
         }
       }
     }
   }
+  
   fclose(fp);
   success = true;
   return detections;
@@ -936,7 +946,7 @@ bool eval(string gt_dir, string result_dir, string report_dir){
   for (int c = 0; c < NUM_CLASS; c++) {
     CLASSES cls = (CLASSES)c;
     if (eval_image[c]) {
-      //cout << "Computing stats for " << CLASS_NAMES[c] << endl;
+      // cout << "Computing stats for " << CLASS_NAMES[c] << endl;
       fp_det = fopen((report_dir + "/stats_" + CLASS_NAMES[c] + "_detection.txt").c_str(), "w");
       vector<double> precision[3], aos[3];
       if(   !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, imageBoxOverlap, precision[0], aos[0], EASY, IMAGE)
