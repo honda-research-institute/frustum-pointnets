@@ -27,7 +27,7 @@ typedef boost::geometry::model::polygon<boost::geometry::model::d2::point_xy<dou
 using namespace std;
 using boost::format;
 
-#define BEV_POS_MODE 1 // 0: point position mode (check "normalizer") 1: box mode
+#define BEV_POS_MODE 0 // 1: point position mode (check "normalizer") 0: box mode
 #define DET_16_ITEMS 1
 
 /*=======================================================================
@@ -58,8 +58,8 @@ vector<string> CLASS_NAMES_CAP;
 // the minimum overlap required for 2D evaluation on the image/ground plane and 3D evaluation
 //const double MIN_OVERLAP[3][3] = {{0.7, 0.5, 0.5}, {0.25, 0.25, 0.25}, {0.25, 0.25, 0.25}};
 //const double MIN_OVERLAP[3][3] = {{0.7, 0.5, 0.5}, {0.5, 0.25, 0.25}, {0.5, 0.25, 0.25}};
-const double MIN_OVERLAP[3][3] = {{0.7, 0.5, 0.5}, {0.7, 0.5, 0.5}, {0.7, 0.5, 0.5}}; // default
-//const double MIN_OVERLAP[3][3] = {{0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}};  // jhuang
+//const double MIN_OVERLAP[3][3] = {{0.7, 0.5, 0.5}, {0.7, 0.5, 0.5}, {0.7, 0.5, 0.5}}; // default
+const double MIN_OVERLAP[3][3] = {{0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}};  // jhuang
 
 // no. of recall steps that should be evaluated (discretized)
 const double N_SAMPLE_PTS = 41;
@@ -165,6 +165,7 @@ vector<tDetection> loadDetections(string file_name, bool &compute_aos,
       detections.push_back(d);
 
       // orientation=-10 is invalid, AOS is not evaluated if at least one orientation is invalid
+      //compute_aos = false;
       if(d.box.alpha == -10)
         compute_aos = false;
 
@@ -262,15 +263,17 @@ void saveStats (const vector<double> &precision, const vector<double> &aos, FILE
   // save precision to file
   if(precision.empty())
     return;
-  for (int32_t i=0; i<precision.size(); i++)
+  for (int32_t i=0; i<precision.size(); i++) {
     fprintf(fp_det,"%f ",precision[i]);
+  }
   fprintf(fp_det,"\n");
 
   // save orientation similarity, only if there were no invalid orientation entries in submission (alpha=-10)
   if(aos.empty())
     return;
-  for (int32_t i=0; i<aos.size(); i++)
+  for (int32_t i=0; i<aos.size(); i++) {
     fprintf(fp_ori,"%f ",aos[i]);
+  }
   fprintf(fp_ori,"\n");
 }
 
@@ -748,6 +751,7 @@ bool eval_class (FILE *fp_det, FILE *fp_ori, CLASSES current_class,
 
   //bool debug = (current_class==1 && difficulty==1);
   bool debug = false;
+  //bool debug = true;
   if (debug) {
     cout << CLASS_NAMES[current_class] << " " << difficulty << endl;
   }
@@ -783,14 +787,17 @@ bool eval_class (FILE *fp_det, FILE *fp_ori, CLASSES current_class,
   
   // get scores that must be evaluated for recall discretization
   if (debug) printf("n_gt=%d\n", n_gt);
+  printf("n_gt=%d\n", n_gt);
   thresholds = getThresholds(v, n_gt);
+  int32_t n_entries = (int32_t) thresholds.size();
+  printf("n_thresholds=%d\n", n_entries);
 
   // compute TP,FP,FN for relevant scores
   vector<tPrData> pr;
-  pr.assign(thresholds.size(),tPrData());
+  pr.assign(n_entries,tPrData());
   for (int32_t i=0; i<groundtruth.size(); i++){
     // for all scores/recall thresholds do:
-    for(int32_t t=0; t<thresholds.size(); t++){
+    for(int32_t t=0; t<n_entries; t++){
       tPrData tmp = tPrData();
       tmp = computeStatistics(current_class, groundtruth[i], detections[i], dontcare[i],
                               ignored_gt[i], ignored_det[i], true, boxoverlap, metric,
@@ -809,11 +816,12 @@ bool eval_class (FILE *fp_det, FILE *fp_ori, CLASSES current_class,
   
   // compute recall, precision and AOS
   vector<double> recall;
-  precision.assign(N_SAMPLE_PTS, 0);
+  precision.assign(n_entries, 0);
   if(compute_aos)
-    aos.assign(N_SAMPLE_PTS, 0);
+    aos.assign(n_entries, 0);
   double r=0;
-  for (int32_t i=0; i<thresholds.size(); i++){
+  if (debug) printf("thresholds.size=%d\n", n_entries);
+  for (int32_t i=0; i<n_entries; i++){
     r = pr[i].tp/(double)(pr[i].tp + pr[i].fn);
     recall.push_back(r);
     precision[i] = pr[i].tp/(double)(pr[i].tp + pr[i].fp);
@@ -821,20 +829,22 @@ bool eval_class (FILE *fp_det, FILE *fp_ori, CLASSES current_class,
       printf("[%.2f] tp=%d, fp=%d, fn=%d, r=%.2f, p=%.2f\n", 
       thresholds[i], pr[i].tp, pr[i].fp, pr[i].fn, r, precision[i]);
     }
-    if(compute_aos)
+    if(compute_aos) {
       aos[i] = pr[i].similarity/(double)(pr[i].tp + pr[i].fp);
+    }
   }
 
   // filter precision and AOS using max_{i..end}(precision)
-  for (int32_t i=0; i<thresholds.size(); i++){
+  for (int32_t i=0; i<n_entries; i++){
     precision[i] = *max_element(precision.begin()+i, precision.end());
-    if(compute_aos)
+    if(compute_aos) {
       aos[i] = *max_element(aos.begin()+i, aos.end());
+    }
   }
 
   // save statisics and finish with success
   saveStats(precision, aos, fp_det, fp_ori);
-    return true;
+  return true;
 }
 
 void saveAndPlotPlots(string dir_name,string file_name,string obj_type,vector<double> vals[],bool is_aos){
@@ -843,15 +853,20 @@ void saveAndPlotPlots(string dir_name,string file_name,string obj_type,vector<do
   // save plot data to file
   FILE *fp = fopen((dir_name + "/" + file_name + ".txt").c_str(),"w");
   //printf("save %s\n", (dir_name + "/" + file_name + ".txt").c_str());
-  for (int32_t i=0; i<(int)N_SAMPLE_PTS; i++)
-    fprintf(fp,"%f %f %f %f\n",(double)i/(N_SAMPLE_PTS-1.0),vals[0][i],vals[1][i],vals[2][i]);
+  int n_entries = (int)vals[0].size();
+  for (int32_t i=0; i<n_entries; i++)
+    fprintf(fp,"%f %f %f %f\n",(double)i/(n_entries-1.0),vals[0][i],vals[1][i],vals[2][i]);
   fclose(fp);
 
   float sum[3] = {0, 0, 0};
   for (int v = 0; v < 3; ++v)
       for (int i = 0; i < vals[v].size(); i = i + 4)
           sum[v] += vals[v][i];
-  printf("%30s AP: %6.2f %6.2f %6.2f\n", file_name.c_str(), sum[0] / 11 * 100, sum[1] / 11 * 100, sum[2] / 11 * 100);
+  if (!is_aos) {
+    printf("%30s AP: %6.2f %6.2f %6.2f\n", file_name.c_str(), sum[0] / 11 * 100, sum[1] / 11 * 100, sum[2] / 11 * 100);
+  } else {
+    printf("%30s AOS: %6.2f %6.2f %6.2f\n", file_name.c_str(), sum[0] / 11 * 100, sum[1] / 11 * 100, sum[2] / 11 * 100);
+  }
 
 
   // create png + eps
@@ -971,11 +986,11 @@ bool eval(string gt_dir, string result_dir, string report_dir){
 
     // check for errors
     if (!gt_success) {
-      cout << format("ERROR: Couldn't read: %s of ground truth.") << file_name;
+      cout << format("ERROR: Couldn't read: %s of ground truth.\n") % file_name;
       return false;
     }
     if (!det_success) {
-      cout << format("ERROR: Couldn't read: %s") << file_name;
+      cout << format("ERROR: Couldn't read: %s\n") % file_name;
       return false;
     }
   }
@@ -988,21 +1003,24 @@ bool eval(string gt_dir, string result_dir, string report_dir){
   // eval image 2D bounding boxes
   printf("Starting 2D bounding box eval.\n");
   cout << "=====\n";
+  bool compute_aos_tmp = false; // 2D box evaluation does not include aos
   for (int c = 0; c < NUM_CLASS; c++) {
     CLASSES cls = (CLASSES)c;
     if (eval_image[c]) {
       // cout << "Computing stats for " << CLASS_NAMES[c] << endl;
       fp_det = fopen((report_dir + "/stats_" + CLASS_NAMES[c] + "_detection.txt").c_str(), "w");
+      if (compute_aos_tmp)
+        fp_ori = fopen((report_dir + "/stats_" + CLASS_NAMES[c] + "_orientation.txt").c_str(),"w");
       vector<double> precision[3], aos[3];
-      if(   !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, imageBoxOverlap, precision[0], aos[0], EASY, IMAGE)
-         || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, imageBoxOverlap, precision[1], aos[1], MODERATE, IMAGE)
-         || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos, imageBoxOverlap, precision[2], aos[2], HARD, IMAGE)) {
-        cout << format("%s evaluation failed.") << CLASS_NAMES[c].c_str();
+      if(   !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos_tmp, imageBoxOverlap, precision[0], aos[0], EASY, IMAGE)
+         || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos_tmp, imageBoxOverlap, precision[1], aos[1], MODERATE, IMAGE)
+         || !eval_class(fp_det, fp_ori, cls, groundtruth, detections, compute_aos_tmp, imageBoxOverlap, precision[2], aos[2], HARD, IMAGE)) {
+        cout << format("%s evaluation failed.") % CLASS_NAMES[c].c_str();
         return false;
       }
       fclose(fp_det);
       saveAndPlotPlots(plot_dir, CLASS_NAMES[c] + "_detection", CLASS_NAMES[c], precision, 0);
-      if(compute_aos){
+      if(compute_aos_tmp){
         saveAndPlotPlots(plot_dir, CLASS_NAMES[c] + "_orientation", CLASS_NAMES[c], aos, 1);
         fclose(fp_ori);
       }
@@ -1012,7 +1030,7 @@ bool eval(string gt_dir, string result_dir, string report_dir){
   printf("Finished 2D bounding box eval.\n\n");
   
   // don't evaluate AOS for birdview boxes and 3D boxes
-  compute_aos = false;
+  //compute_aos = false;
 
   // eval bird's eye view position-only
   printf("Starting BEV eval.\n");
@@ -1021,6 +1039,8 @@ bool eval(string gt_dir, string result_dir, string report_dir){
     CLASSES cls = (CLASSES)c;
     if (eval_ground[c]) {
       fp_det = fopen((report_dir + "/stats_" + CLASS_NAMES[c] + "_detection_ground.txt").c_str(), "w");
+      if (compute_aos)
+        fp_ori = fopen((report_dir + "/stats_" + CLASS_NAMES[c] + "_orientation_ground.txt").c_str(),"w");
       vector<double> precision[3], aos[3];
       if (BEV_POS_MODE) {
         //printf("Going to eval ground for class: %s\n", CLASS_NAMES[c].c_str());
@@ -1040,6 +1060,10 @@ bool eval(string gt_dir, string result_dir, string report_dir){
       }
       fclose(fp_det);
       saveAndPlotPlots(plot_dir, CLASS_NAMES[c] + "_detection_ground", CLASS_NAMES[c], precision, 0);
+      if(compute_aos){
+        saveAndPlotPlots(plot_dir, CLASS_NAMES[c] + "_orientation_ground", CLASS_NAMES[c], aos, 1);
+        fclose(fp_ori);
+      }
     }
   }
   cout << "=====\n";

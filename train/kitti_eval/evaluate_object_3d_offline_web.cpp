@@ -50,10 +50,17 @@ const int NUM_CLASS = 3;
 
 // parameters varying per class
 vector<string> CLASS_NAMES;
+
+#define IOU_P7 0
 // the minimum overlap required for 2D evaluation on the image/ground plane and 3D evaluation
+// first index is difficulty (easy/med/hard), second index is class (car/ped/cyc)
 //const double MIN_OVERLAP[3][3] = {{0.7, 0.5, 0.5}, {0.25, 0.25, 0.25}, {0.25, 0.25, 0.25}};
 //const double MIN_OVERLAP[3][3] = {{0.7, 0.5, 0.5}, {0.5, 0.25, 0.25}, {0.5, 0.25, 0.25}};
-const double MIN_OVERLAP[3][3] = {{0.7, 0.5, 0.5}, {0.7, 0.5, 0.5}, {0.7, 0.5, 0.5}};
+#if IOU_P7
+const double MIN_OVERLAP[3][3] = {{0.7, 0.5, 0.5}, {0.7, 0.5, 0.5}, {0.7, 0.5, 0.5}}; // IOU=0.7
+#else
+const double MIN_OVERLAP[3][3] = {{0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}, {0.5, 0.5, 0.5}};  // IOU=0.5
+#endif
 
 // no. of recall steps that should be evaluated (discretized)
 const double N_SAMPLE_PTS = 41;
@@ -708,7 +715,7 @@ void saveAndPlotPlots(string dir_name,string file_name,string obj_type,vector<do
   char command[1024];
   // save plot data to file
   FILE *fp = fopen((dir_name + "/" + file_name + ".txt").c_str(),"w");
-  printf("save %s\n", (dir_name + "/" + file_name + ".txt").c_str());
+  //printf("save %s\n", (dir_name + "/" + file_name + ".txt").c_str());
   for (int32_t i=0; i<(int)N_SAMPLE_PTS; i++)
     fprintf(fp,"%f %f %f %f\n",(double)i/(N_SAMPLE_PTS-1.0),vals[0][i],vals[1][i],vals[2][i]);
   fclose(fp);
@@ -717,7 +724,8 @@ void saveAndPlotPlots(string dir_name,string file_name,string obj_type,vector<do
   for (int v = 0; v < 3; ++v)
       for (int i = 0; i < vals[v].size(); i = i + 4)
           sum[v] += vals[v][i];
-  printf("%s AP: %f %f %f\n", file_name.c_str(), sum[0] / 11 * 100, sum[1] / 11 * 100, sum[2] / 11 * 100);
+  //printf("%s AP: %f %f %f\n", file_name.c_str(), sum[0] / 11 * 100, sum[1] / 11 * 100, sum[2] / 11 * 100);
+  printf("%30s AP: %6.2f %6.2f %6.2f\n", file_name.c_str(), sum[0] / 11 * 100, sum[1] / 11 * 100, sum[2] / 11 * 100);
 
 
   // create png + eps
@@ -764,12 +772,14 @@ void saveAndPlotPlots(string dir_name,string file_name,string obj_type,vector<do
   }
 
   // create pdf and crop
-  sprintf(command,"cd %s; ps2pdf %s.eps %s_large.pdf",dir_name.c_str(),file_name.c_str(),file_name.c_str());
-  system(command);
-  sprintf(command,"cd %s; pdfcrop %s_large.pdf %s.pdf",dir_name.c_str(),file_name.c_str(),file_name.c_str());
-  system(command);
-  sprintf(command,"cd %s; rm %s_large.pdf",dir_name.c_str(),file_name.c_str());
-  system(command);
+  if (0) {
+    sprintf(command,"cd %s; ps2pdf %s.eps %s_large.pdf",dir_name.c_str(),file_name.c_str(),file_name.c_str());
+    system(command);
+    sprintf(command,"cd %s; pdfcrop %s_large.pdf %s.pdf",dir_name.c_str(),file_name.c_str(),file_name.c_str());
+    system(command);
+    sprintf(command,"cd %s; rm %s_large.pdf",dir_name.c_str(),file_name.c_str());
+    system(command);
+  }
 }
 
 vector<int32_t> getEvalIndices(const string& result_dir) {
@@ -800,7 +810,7 @@ bool eval(string gt_dir, string result_dir, Mail* mail){
   string plot_dir       = result_dir + "/plot";
 
   // create output directories
-  system(("mkdir " + plot_dir).c_str());
+  system(("mkdir -p " + plot_dir).c_str());
 
   // hold detections and ground truth in memory
   vector< vector<tGroundtruth> > groundtruth;
@@ -815,7 +825,7 @@ bool eval(string gt_dir, string result_dir, Mail* mail){
 
   // for all images read groundtruth and detections
   mail->msg("Loading detections...");
-  std::vector<int32_t> indices = getEvalIndices(result_dir + "/data/");
+  std::vector<int32_t> indices = getEvalIndices(result_dir);
   printf("number of files for evaluation: %d\n", (int)indices.size());
 
   for (int32_t i=0; i<indices.size(); i++) {
@@ -827,7 +837,7 @@ bool eval(string gt_dir, string result_dir, Mail* mail){
     // read ground truth and result poses
     bool gt_success,det_success;
     vector<tGroundtruth> gt   = loadGroundtruth(gt_dir + "/" + file_name,gt_success);
-    vector<tDetection>   det  = loadDetections(result_dir + "/data/" + file_name,
+    vector<tDetection>   det  = loadDetections(result_dir + "/" + file_name,
             compute_aos, eval_image, eval_ground, eval_3d, det_success);
     groundtruth.push_back(gt);
     detections.push_back(det);
@@ -846,8 +856,16 @@ bool eval(string gt_dir, string result_dir, Mail* mail){
 
   // holds pointers for result files
   FILE *fp_det=0, *fp_ori=0;
+  
+  #if IOU_P7
+  printf("### Evaluate for iou=0.7 ###\n");
+  #else
+  printf("### Evaluate for iou=0.5 ###\n");
+  #endif
 
   // eval image 2D bounding boxes
+  printf("Starting 2D bounding box eval.\n");
+  cout << "=====\n";
   for (int c = 0; c < NUM_CLASS; c++) {
     CLASSES cls = (CLASSES)c;
     if (eval_image[c]) {
@@ -869,11 +887,15 @@ bool eval(string gt_dir, string result_dir, Mail* mail){
       }
     }
   }
-  printf("Finished 2D bounding box eval.\n");
+  cout << "=====\n";
+  printf("Finished 2D bounding box eval.\n\n");
+  
   // don't evaluate AOS for birdview boxes and 3D boxes
   compute_aos = false;
 
   // eval bird's eye view bounding boxes
+  printf("Starting BEV eval.\n");
+  cout << "=====\n";
   for (int c = 0; c < NUM_CLASS; c++) {
     CLASSES cls = (CLASSES)c;
     if (eval_ground[c]) {
@@ -890,8 +912,10 @@ bool eval(string gt_dir, string result_dir, Mail* mail){
       saveAndPlotPlots(plot_dir, CLASS_NAMES[c] + "_detection_ground", CLASS_NAMES[c], precision, 0);
     }
   }
-  printf("Finished Birdeye eval.\n");
+  cout << "=====\n";
+  printf("Finished BEV eval.\n\n");
 
+#if 0
   // eval 3D bounding boxes
   for (int c = 0; c < NUM_CLASS; c++) {
     CLASSES cls = (CLASSES)c;
@@ -910,6 +934,7 @@ bool eval(string gt_dir, string result_dir, Mail* mail){
     }
   }
   printf("Finished 3D bounding box eval.\n");
+#endif
 
   // success
   return true;
