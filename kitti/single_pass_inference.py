@@ -26,7 +26,7 @@ sys.path.append(MODEL_DIR)
 sys.path.append(TRAIN_DIR)
 from provider import from_prediction_to_label_format
 import kitti_util as utils
-import cPickle as pickle
+import pickle
 import argparse
 import pypcd
 
@@ -73,7 +73,7 @@ img_bev_w, img_bev_h = 600, 800
 img_bev_resolution = 0.1
 SHOW_BOX3D = True
 SHOW_BOX_BEV = True
-
+VIZ_MODE = 0 # 0: minimal, 1: lite, 2: full
 
 # scan is Nx4 array
 def write2pcd(scan, pcd_file):
@@ -260,6 +260,7 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
     for det_idx in range(len(det_type_list)):
         #print('det idx: %d/%d' % (det_idx + 1, len(det_type_list)))
         if det_idx == 0:  # first det, load all input files
+            t0 = time.time()
             calib = get_kitti_calibration(calib_filename)  # 3 by 4 matrix
 
             # Test calibration by 3d-to-2d projection:
@@ -269,31 +270,45 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
             # print(pts_2d)
 
             pc_velo = get_kitti_lidar(lidar_filename, lidar_format)
+            print("- A = {:.3f}".format(time.time() - t0))
             pc_rect_full = calib.project_velo_to_rect(pc_velo[:, 0:3])
+            print("- B = {:.3f}".format(time.time() - t0))
             # Remove points behind image plane
             pc_frontal_mask = pc_rect_full[:, 2] > 0
             pc_velo = pc_velo[pc_frontal_mask, :]  # Nx4
+            print("- C1 = {:.3f}".format(time.time() - t0))
             pc_rect = np.zeros((np.count_nonzero(pc_frontal_mask), 4))
+            print("- C2 = {:.3f}".format(time.time() - t0))
             pc_rect[:, 0:3] = pc_rect_full[pc_frontal_mask, :]
             pc_rect[:, 3] = pc_velo[:, 3]
+            print("- C3 = {:.3f}".format(time.time() - t0))
 
-            img_bev = draw_BEV_lidar(pc_rect, render=False)
-            #img_bev = draw_BEV_lidar(None, render=False)
+            if VIZ_MODE==2:
+                img_bev = draw_BEV_lidar(pc_rect, draw_pointcloud=True)
+            elif VIZ_MODE==1:
+                img_bev = draw_BEV_lidar(pc_rect, draw_pointcloud=False)
+            else:
+                img_bev = draw_BEV_lidar(None)
+            print("- D = {:.3f}".format(time.time() - t0))
 
             if write_frustum_pcd:
                 write2pcd(pc_velo, lidar_filename.replace('.bin', '_full.pcd'))
 
             img = get_kitti_image(image_filename)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            boxes2d = np.stack(det_box2d_list, axis=0)  # Nx4
-            draw_boxes2d_on_img(boxes2d, img, ax)
+            print("- E = {:.3f}".format(time.time() - t0))
+            if VIZ_MODE>=1: # Draw 2D boxes onto image
+                boxes2d = np.stack(det_box2d_list, axis=0)  # Nx4
+                draw_boxes2d_on_img(boxes2d, img, ax)
+            
+            # TODO: project_velo_to_rect is called again in 
+            #       get_lidar_in_image_fov. We should optimize it.
             img_height, img_width, img_channel = img.shape
-            # TODO: project_velo_to_rect is called again in get_lidar_in_image_fov
-            #       try to save it
             _, pc_image_coord, img_fov_inds = get_lidar_in_image_fov( \
-                pc_velo[:, 0:3], calib, 0, 0, img_width, img_height, True)
+            pc_velo[:, 0:3], calib, 0, 0, img_width, img_height, True)
 
             # Used next: calib, pc_rect, pc_image_coord, img_fov_inds
+            print("- F = {:.3f}".format(time.time() - t0))
 
         if det_type_list[det_idx] not in type_whitelist: continue
 
@@ -322,14 +337,14 @@ def extract_frustum_data_rgb_detection(det_filename, image_filename,
 
         if write_frustum_pcd:
             write2pcd(pc_in_box_fov, lidar_filename.replace('.bin', '_{:d}.pcd'.format(det_idx)))
-
+            
         type_list.append(det_type_list[det_idx])
         box2d_list.append(det_box2d_list[det_idx])
         prob_list.append(det_prob_list[det_idx])
         input_list.append(pc_in_box_fov)
         frustum_angle_list.append(frustum_angle)
         calib_list.append(calib)
-
+        
     if False:
         with open(output_filename, 'wb') as fp:
             pickle.dump(box2d_list, fp)
@@ -424,9 +439,9 @@ def rect2bev_img(pt_rect):
 
 
 # pc_rect = (n,4) => x, y, z, intensity
-def draw_BEV_lidar(pc_rect, render = False):
+def draw_BEV_lidar(pc_rect, draw_pointcloud = False, render = False):
     img_bev = np.zeros([img_bev_h, img_bev_w, 3], dtype=np.uint8)
-    if pc_rect is not None:
+    if draw_pointcloud and pc_rect is not None:
         downsample = int(pc_rect.shape[0] / 100000)
         for pt_rect in pc_rect[::downsample, :]:
             [u, v] = rect2bev_img(pt_rect)
@@ -506,7 +521,7 @@ def render_img(img):
 def inference(sess, ops, pc, one_hot_vec, batch_size):
     ''' Run inference for frustum pointnets in batch mode '''
     assert pc.shape[0] % batch_size == 0
-    num_batches = pc.shape[0] / batch_size
+    num_batches = pc.shape[0] // batch_size
     logits = np.zeros((pc.shape[0], pc.shape[1], NUM_CLASSES))
     centers = np.zeros((pc.shape[0], 3))
     heading_logits = np.zeros((pc.shape[0], NUM_HEADING_BIN))
