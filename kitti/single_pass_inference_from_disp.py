@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import random
 import time
+from pynput import keyboard
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
@@ -73,7 +74,7 @@ img_bev_w, img_bev_h = 600, 800
 img_bev_resolution = 0.1
 SHOW_BOX3D = True
 SHOW_BOX_BEV = True
-VIZ_MODE = 0 # 0: minimal, 1: lite, 2: full
+VIZ_MODE = 2 # 0: minimal, 1: lite, 2: full
 
 # scan is Nx4 array
 def write2pcd(scan, pcd_file):
@@ -638,7 +639,7 @@ def run_inference(sess, ops, batch_data, batch_rot_angle, batch_one_hot_vec, cal
     draw_boxes3d_on_img(boxes3d, img, ax1, render=SHOW_BOX3D)
     draw_boxes3d_on_img_bev(boxes3d_bev, img_bev, ax2, render=SHOW_BOX_BEV)
 
-
+        
 if __name__ == '__main__':
     # 0: kitti, 1: mule VLP32, 2: nuscenes, 3: white-2x, 4: kitti pseudo-lidar,
     # 5: sunny pseudo-lidar, 6: apollo pseudo-lidar, 7: CCSAD pseudo-lidar
@@ -701,13 +702,16 @@ if __name__ == '__main__':
     batch_size = BATCH_SIZE
     sess, ops = get_session_and_ops(batch_size=batch_size, num_point=NUM_POINT)
 
-    fig = plt.figure(constrained_layout=True, figsize=(13, 12))
+    fig = plt.figure(constrained_layout=False, figsize=(13, 12))
     gs = gridspec.GridSpec(2, 2)
     gs.update(wspace=0.1, hspace=0.05)  # set the spacing between axes
     ax_2d = fig.add_subplot(gs[0, 0])
     ax_3d = fig.add_subplot(gs[1, 0])
     ax_bev = fig.add_subplot(gs[:, -1])
     # _, ax = plt.subplots(1, 3)
+    plt.ion()
+    plt.show()
+    plt.pause(0.001)
 
     for SAMPLE in SAMPLES:
         if run_mode == 0:
@@ -763,9 +767,19 @@ if __name__ == '__main__':
             continue # skip sample with no detections
 
         print("total time={:.3f}".format(time.time() - t0))
-        #plt.show()
         plt.draw()
         margin = 0.03
         plt.subplots_adjust(left=margin, right=1 - margin, top=1 - margin, bottom=margin)
-        plt.waitforbuttonpress(0) # press any key to continue
+        plt.pause(0.001)
+        # Press any key to continue, 'ESC' to quit.
+        finish = False
+        with keyboard.Events() as events:
+            for event in events:
+                if event.key == keyboard.Key.esc:
+                    finish = True
+                break
+        
+        if finish:
+            break
+
 
